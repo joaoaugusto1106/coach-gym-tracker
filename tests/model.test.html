@@ -43,8 +43,8 @@
   eq("phase 2 wk 1 after 6 weeks", [pi.phase, pi.week, pi.variantLabel], [2, 1, "B"]);
   pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-04-30"); // ~17 weeks
   eq("phase 3 → variant C", pi.variantLabel, "C");
-  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-06-15"); // ~24 weeks
-  eq("phase 5 → back to variant A", [pi.phase, pi.variantLabel], [5, "A"]);
+  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-05-15"); // ~19 weeks -> phase 4
+  eq("phase 4 → variant cycles back to A", [pi.phase, pi.variantLabel], [4, "A"]);
   eq("deload flag on last week", M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-02-05").isDeloadWeek, true);
 
   // --- PR detection ---
