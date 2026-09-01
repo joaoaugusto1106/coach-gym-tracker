@@ -78,6 +78,10 @@ window.App = window.App || {};
     }
     back.addEventListener("click", function (e) { if (e.target === back) close(); });
     function open() {
+      // only ever one sheet at a time — a stacked sheet hides the one beneath it
+      [].forEach.call(document.querySelectorAll(".sheet-backdrop"), function (n) {
+        if (n.parentNode) n.parentNode.removeChild(n);
+      });
       document.body.appendChild(back);
       requestAnimationFrame(function () { back.classList.add("in"); });
     }

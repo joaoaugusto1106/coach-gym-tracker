@@ -1,4 +1,4 @@
-/* Boot + hash router + tab bar. */
+/* Boot + hash router + tab bar + global reliability banners. */
 
 window.App = window.App || {};
 (function () {
@@ -14,10 +14,8 @@ window.App = window.App || {};
 
   function tabbar(active) {
     return el("div", { class: "tabbar" }, TABS.map(function (t) {
-      return el("a", {
-        class: "tab" + (t.route === active ? " on" : ""),
-        href: "#/" + t.route
-      }, [icon(t.icon, 25), el("span", { text: t.label })]);
+      return el("a", { class: "tab" + (t.route === active ? " on" : ""), href: "#/" + t.route },
+        [icon(t.icon, 25), el("span", { text: t.label })]);
     }));
   }
 
@@ -28,6 +26,14 @@ window.App = window.App || {};
   }
 
   function render() {
+    var app = document.getElementById("app");
+
+    if (App.store.migrationError) {
+      app.innerHTML = "";
+      app.appendChild(App.views.MigrationRecovery());
+      return;
+    }
+
     var r = parseHash();
     var V = App.views;
     var node, tab = r.name;
@@ -39,13 +45,12 @@ window.App = window.App || {};
         else { node = V.Session(); tab = "today"; }
         break;
       case "history": node = V.History(); break;
-      case "body":    node = V.Placeholder("Body", "Body-weight log and trend arrive in stage 9."); break;
-      case "food":    node = V.Placeholder("Food", "Your six-meal checklist arrives in stage 5."); break;
+      case "body":    node = V.Placeholder("Body", "Body-weight log and trend arrive in Stage 5."); break;
+      case "food":    node = V.Placeholder("Food", "Your six-meal checklist arrives in Stage 5."); break;
       case "more":    node = V.More(); break;
       default:        node = V.Today(); tab = "today";
     }
 
-    var app = document.getElementById("app");
     app.innerHTML = "";
     app.appendChild(node);
     app.appendChild(tabbar(tab));
@@ -60,10 +65,27 @@ window.App = window.App || {};
   }
   App.applyTheme = applyTheme;
 
+  // Persistent "not saving" banner, toggled by store.js on save success/failure.
+  var banner = null;
+  App.onSaveHealthChange = function (ok) {
+    if (ok) { if (banner) { banner.remove(); banner = null; } return; }
+    if (banner) return;
+    banner = el("div", { class: "savebar bad" }, [
+      icon("warn", 16),
+      el("span", { text: "Not saving — storage is full or blocked. Export a backup from More now." })
+    ]);
+    document.body.appendChild(banner);
+  };
+
   function boot() {
     App.ui.mountSprite();
-    App.store.get();            // load or seed
-    applyTheme();
+    App.store.get();            // load + migrate (or set migrationError)
+    if (!App.store.migrationError) {
+      applyTheme();
+      if (App.store.recoveredFromLKG) {
+        setTimeout(function () { App.ui.toast("Recovered your data from the last good copy"); }, 400);
+      }
+    }
     if (!location.hash) location.hash = "#/today";
     render();
     window.addEventListener("hashchange", render);

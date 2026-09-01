@@ -209,4 +209,49 @@ button.chip{cursor:pointer}
 .ic{fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round; stroke-linejoin:round; flex:none}
 .ic .fill{fill:currentColor; stroke:none}
 
+/* ---- Stage 1.5 ---- */
+.linkbtn{align-self:flex-start; background:none; border:0; color:var(--accent); font:inherit;
+  font-weight:650; font-size:13.5px; cursor:pointer; padding:4px 0; display:inline-flex; align-items:center; gap:4px}
+.linkbtn.center{align-self:center}
+
+.savedline{font-size:11px; color:var(--ink3); font-weight:600; margin:-4px 2px 0}
+
+.notice{display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px;
+  background:var(--warnSoft); color:var(--ink); font-size:12.5px; line-height:1.4}
+.notice .ic{color:var(--warn); flex:none}
+.notice.ok{background:var(--accentSoft)}
+.notice.ok .ic{color:var(--accent)}
+.notice .linkbtn{margin-left:auto; font-size:13px}
+
+.savebar{position:fixed; left:0; right:0; bottom:calc(84px + env(safe-area-inset-bottom)); z-index:90;
+  display:flex; align-items:center; gap:8px; padding:10px 16px;
+  background:var(--warn); color:#fff; font-size:12.5px; font-weight:600; line-height:1.35}
+.savebar .ic{color:#fff}
+
+.finish-missing{display:flex; flex-direction:column; gap:4px; background:var(--card2);
+  border-radius:10px; padding:9px 11px}
+.finish-missing-row{display:flex; align-items:center; gap:7px; font-size:13px; color:var(--ink2)}
+.finish-missing-row .ic{color:var(--warn)}
+
+.seg.tiny{padding:2px}
+.seg.tiny .segb{font-size:11.5px; padding:6px 0; font-weight:600}
+
+.setlogrow.aux,.recall-row.aux{opacity:.55}
+.setlogrow.aux .n,.recall-row.aux .n{color:var(--ink3)}
+
+.chip.status-partial{background:var(--prSoft); color:var(--pr)}
+.chip.status-abandoned{background:var(--card2); color:var(--ink3); text-decoration:line-through}
+.chip.status-draft{background:var(--accentSoft); color:var(--accent)}
+
+.checkrow{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--ink2); padding:4px 0}
+.checkrow input{width:20px; height:20px; accent-color:var(--accent)}
+
+.noteinput{width:100%; font:inherit; font-size:14px; padding:10px 12px; border-radius:10px;
+  background:var(--card2); border:1px solid var(--sep); color:var(--ink)}
+
+.warn-text{color:var(--warn)}
+.sched-dot{color:var(--accent); font-size:8px; line-height:1; margin-right:5px; vertical-align:middle}
+.chip.m .sched-dot{color:var(--accent)}
+.daypick .chip{display:inline-flex; align-items:center}
+
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:6px}

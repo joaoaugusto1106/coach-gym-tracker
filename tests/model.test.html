@@ -4,12 +4,11 @@
 <meta charset="utf-8">
 <title>Coach — model tests</title>
 <style>
-  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:760px}
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:820px}
   h1{font-size:18px}
   .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
   .row{padding:3px 0; border-bottom:1px solid #eee; font-variant-numeric:tabular-nums}
-  #summary{margin:14px 0; font-weight:700}
-  code{background:#f2f2f2; padding:1px 4px; border-radius:4px}
+  #summary{margin:14px 0; font-weight:700; font-size:15px}
 </style>
 </head>
 <body>
@@ -17,6 +16,7 @@
 <div id="summary">running…</div>
 <div id="out"></div>
 
+<script src="../js/util.js"></script>
 <script src="../js/data.js"></script>
 <script src="../js/model.js"></script>
 <script>
@@ -30,66 +30,131 @@
     cond ? pass++ : fail++;
   }
   function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
-  function S(w, r, rir) { return { weightKg: w, reps: r, rir: rir, warmup: false, e1rm: M.epley(w, r) }; }
+  function S(w, r, rir, type) { return { id: "x", weightKg: w, reps: r, rir: rir, type: type || "working", e1rm: M.epley(w, r), prFlags: [] }; }
 
   // --- Epley ---
-  ok("epley 100x1 == 100", Math.abs(M.epley(100, 1) - 103.333) < 0.01 || M.epley(100,1) === 100 + 100/30);
-  ok("epley 60x10 ≈ 80", Math.abs(M.epley(60, 10) - 80) < 0.0001);
+  ok("epley 60x10 == 80", Math.abs(M.epley(60, 10) - 80) < 1e-9);
+  ok("epley 100x1 == 103.33", Math.abs(M.epley(100, 1) - (100 + 100 / 30)) < 1e-9);
 
-  // --- phase / week / variant ---
+  // --- calendar clock (phase / week) ---
   var pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-01-01");
-  eq("phase 1 wk 1 on start day", [pi.phase, pi.week, pi.variantLabel], [1, 1, "A"]);
-  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-02-13"); // ~6.1 weeks later
-  eq("phase 2 wk 1 after 6 weeks", [pi.phase, pi.week, pi.variantLabel], [2, 1, "B"]);
-  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-04-30"); // ~17 weeks
-  eq("phase 3 → variant C", pi.variantLabel, "C");
-  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-05-15"); // ~19 weeks -> phase 4
-  eq("phase 4 → variant cycles back to A", [pi.phase, pi.variantLabel], [4, "A"]);
-  eq("deload flag on last week", M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-02-05").isDeloadWeek, true);
+  eq("phase 1 wk 1 on start day", [pi.phase, pi.week], [1, 1]);
+  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-02-13");
+  eq("phase 2 wk 1 after ~6 weeks", [pi.phase, pi.week], [2, 1]);
+  eq("deload flag on last week of phase",
+    M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-02-05").isDeloadWeek, true);
+
+  // --- program version selection by effective date ---
+  var st2 = {
+    programVersions: [
+      { id: "pv1", name: "v1", effectiveStartDate: "2026-01-01", trainingDayOrder: ["push", "lower", "pull", "arms"], days: seedDays() },
+      { id: "pv2", name: "v2", effectiveStartDate: "2026-03-01", trainingDayOrder: ["push", "lower", "pull", "arms"], days: seedDays() }
+    ], activeProgramVersionId: "pv2", rotationIndex: 0
+  };
+  eq("active program before pv2 effective date", M.activeProgram(st2, "2026-02-15").id, "pv1");
+  eq("active program on/after pv2 effective date", M.activeProgram(st2, "2026-03-10").id, "pv2");
+  eq("programShortName", M.programShortName({ id: "pv3" }), "v3");
+
+  // --- rotation clock ---
+  function seedDays() {
+    return ["push", "lower", "pull", "arms"].map(function (id) {
+      return { id: id, name: id, slots: [{ planSlotId: id + ".s1", defaultExerciseId: "bb-bench", allowedExerciseIds: ["bb-bench"], sets: 3, repLow: 6, repHigh: 9, rir: 2, loadIncrementKg: null }] };
+    });
+  }
+  var stRot = { programVersions: [{ id: "pv1", effectiveStartDate: "2000-01-01", trainingDayOrder: ["push", "lower", "pull", "arms"], days: seedDays() }], activeProgramVersionId: "pv1", rotationIndex: 0 };
+  eq("rotationIndex 0 → push", M.nextDay(stRot).dayId, "push");
+  stRot.rotationIndex = 1; eq("rotationIndex 1 → lower", M.nextDay(stRot).dayId, "lower");
+  stRot.rotationIndex = 4; eq("rotationIndex 4 wraps → push", M.nextDay(stRot).dayId, "push");
+  eq("rotationDayInfo maps a manual day to its index", M.rotationDayInfo(stRot, "pull").dayIndex, 2);
+
+  // --- seed integrity ---
+  ok("every seed exercise has a movement family",
+    App.EXERCISE_SEED.every(function (e) { return !!e.movementFamilyId; }));
+  ok("incline press variants share a family",
+    ["incline-db-press", "incline-machine-press", "incline-bb-press", "incline-smith-press"]
+      .map(function (id) { return App.EXERCISE_SEED.filter(function (e) { return e.id === id; })[0].movementFamilyId; })
+      .every(function (f, _, arr) { return f === arr[0]; }));
+  ok("dumbbell default increment is 2kg",
+    App.EXERCISE_SEED.filter(function (e) { return e.id === "incline-db-press"; })[0].defaultLoadIncrementKg === 2);
+  ok("seed program has planSlotId on every slot",
+    App.PROGRAM_SEED.days.every(function (d) { return d.slots.every(function (s) { return !!s.planSlotId; }); }));
 
   // --- PR detection ---
   eq("no history → no PR", M.prsForSet([], S(100, 5, 2)), []);
   eq("heavier than ever → weight + e1rm", M.prsForSet([S(60, 8, 2)], S(62.5, 8, 2)), ["weight", "e1rm"]);
   eq("more reps at a known weight → repsAtWeight", M.prsForSet([S(60, 8, 2), S(60, 9, 2)], S(60, 10, 1)).sort(), ["e1rm", "repsAtWeight"]);
   eq("weaker set → nothing", M.prsForSet([S(60, 8, 2), S(70, 5, 0)], S(60, 7, 3)), []);
-  eq("same as best → nothing (must beat)", M.prsForSet([S(60, 8, 2)], S(60, 8, 2)), []);
+  eq("equal to best → nothing (must beat)", M.prsForSet([S(60, 8, 2)], S(60, 8, 2)), []);
   eq("e1rm-only PR", M.prsForSet([S(60, 5, 2), S(50, 10, 2)], S(57.5, 9, 1)), ["e1rm"]);
   eq("prLabel priority weight", M.prLabel(["weight", "e1rm"], 65), "Heaviest");
-  eq("prLabel priority reps over e1rm", M.prLabel(["e1rm", "repsAtWeight"], 40), "Most reps @ 40 kg");
+  eq("prLabel reps over e1rm", M.prLabel(["e1rm", "repsAtWeight"], 40), "Most reps @ 40 kg");
+
+  // --- working sets vs warm-up / drop ---
+  eq("workingSets excludes warm-up and drop",
+    M.workingSets([S(40, 5, 4, "warmup"), S(60, 8, 2, "working"), S(50, 12, 0, "drop")]).length, 1);
+
+  // --- last-time recall respects session status ---
+  function sess(id, status, exId, sets) {
+    return { id: id, status: status, date: "2026-08-2" + id, startedAt: "2026-08-2" + id + "T16:00:00Z",
+      phase: 1, week: 2, entries: [{ exerciseId: exId, sets: sets }] };
+  }
+  var stLP = { exercises: App.EXERCISE_SEED, activeSession: null, sessions: [
+    sess("1", "completed", "bb-bench", [S(60, 8, 2)]),
+    sess("2", "abandoned", "bb-bench", [S(999, 1, 0)]),
+    sess("3", "draft", "bb-bench", [S(888, 1, 0)])
+  ] };
+  eq("lastPerformance ignores abandoned + draft", M.lastPerformance(stLP, "bb-bench").sets[0].weightKg, 60);
+  eq("lastPerformance ignores warm-up-only entries",
+    M.lastPerformance({ exercises: App.EXERCISE_SEED, sessions: [sess("1", "completed", "bb-bench", [S(40, 5, 4, "warmup")])] }, "bb-bench"), null);
 
   // --- overload suggestion ---
   var ex = App.EXERCISE_SEED;
   function stateWithLast(exId, sets) {
     return { exercises: ex, activeSession: null,
-      sessions: [{ id: "s1", date: "2026-08-25", startedAt: "2026-08-25T16:00:00Z", phase: 1, week: 2,
-        entries: [{ exerciseId: exId, sets: sets }] }] };
+      sessions: [{ id: "s1", status: "completed", date: "2026-08-25", startedAt: "2026-08-25T16:00:00Z", phase: 1, week: 2, entries: [{ exerciseId: exId, sets: sets }] }] };
   }
-  var slot = { sets: 4, repLow: 6, repHigh: 9, rir: 2 };
-  eq("all RIR≥2 → push",
-    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2), S(60, 8, 2), S(60, 8, 3)]), "bb-bench", slot).tone, "push");
-  eq("a set at RIR1 → hold",
-    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2), S(60, 8, 1)]), "bb-bench", slot).tone, "hold");
-  eq("a set at RIR0 → back",
-    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2), S(60, 7, 0)]), "bb-bench", slot).tone, "back");
-  eq("no history → none",
-    M.overloadSuggestion({ exercises: ex, activeSession: null, sessions: [] }, "bb-bench", slot).tone, "none");
+  var slot = { sets: 4, repLow: 6, repHigh: 9, rir: 2, loadIncrementKg: null };
+  eq("all at top of range, RIR≥2 → push",
+    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 3), S(60, 9, 2)]), "bb-bench", slot).tone, "push");
+  eq("in range, not at top → hold",
+    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 7, 2), S(60, 7, 2), S(60, 7, 2), S(60, 7, 2)]), "bb-bench", slot).tone, "hold");
+  eq("a set below the rep floor → back",
+    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2), S(60, 4, 0)]), "bb-bench", slot).tone, "back");
+  eq("no history → none / confidence none",
+    [M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).tone,
+     M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).confidence], ["none", "none"]);
+  eq("missing RIR on a set → confidence low",
+    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, null)]), "bb-bench", slot).confidence, "low");
   ok("push headline names a heavier number",
-    /(?:62\.5|65) kg/.test(M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2)]), "bb-bench", slot).headline));
-  ok("dumbbell increment is 2kg",
-    M.overloadSuggestion(stateWithLast("incline-db-press", [S(24, 10, 3)]), "incline-db-press", slot).headline.indexOf("26 kg") > -1);
+    /62\.5 kg/.test(M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2)]), "bb-bench", slot).headline));
+  ok("dumbbell push adds 2 kg",
+    /26 kg/.test(M.overloadSuggestion(stateWithLast("incline-db-press", [S(24, 12, 3), S(24, 12, 2), S(24, 12, 2)]), "incline-db-press", { sets: 3, repLow: 8, repHigh: 12, rir: 2, loadIncrementKg: null }).headline));
+  ok("slot loadIncrementKg overrides the exercise default",
+    /61.25 kg/.test(M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2)]), "bb-bench", { sets: 4, repLow: 6, repHigh: 9, rir: 2, loadIncrementKg: 1.25 }).headline));
 
-  // --- recomputeSessionPRs walks chronologically ---
-  var st = { sessions: [], exercises: ex };
-  var sess = { id: "x", entries: [{ exerciseId: "bb-bench", sets: [S(60, 8, 2), S(65, 8, 2), S(65, 9, 1)] }] };
-  st.sessions = [];
-  M.recomputeSessionPRs(st, sess);
-  eq("set1 no PR (first ever, nothing to beat)", sess.entries[0].sets[0].prFlags, []);
-  eq("set2 weight PR", sess.entries[0].sets[1].prFlags.indexOf("weight") > -1, true);
-  eq("set3 repsAtWeight PR (65kg, 9>8)", sess.entries[0].sets[2].prFlags.indexOf("repsAtWeight") > -1, true);
+  // --- recomputeSessionPRs walks chronologically; warm-ups never PR ---
+  var stPR = { sessions: [], exercises: ex };
+  var s1 = { id: "x", status: "completed", startedAt: "2026-08-01T16:00:00Z",
+    entries: [{ exerciseId: "bb-bench", sets: [S(40, 5, 4, "warmup"), S(60, 8, 2), S(65, 8, 2), S(65, 9, 1)] }] };
+  M.recomputeSessionPRs(stPR, s1);
+  eq("warm-up set never flags a PR", s1.entries[0].sets[0].prFlags, []);
+  eq("first working set: nothing to beat", s1.entries[0].sets[1].prFlags, []);
+  eq("2nd working set: weight PR", s1.entries[0].sets[2].prFlags.indexOf("weight") > -1, true);
+  eq("3rd working set: repsAtWeight PR", s1.entries[0].sets[3].prFlags.indexOf("repsAtWeight") > -1, true);
+
+  // --- recomputeAllPRs across sessions, abandoned excluded ---
+  var stAll = { exercises: ex, sessions: [
+    { id: "a", status: "completed", startedAt: "2026-08-01T16:00:00Z", entries: [{ exerciseId: "bb-bench", sets: [S(60, 8, 2)] }] },
+    { id: "b", status: "abandoned", startedAt: "2026-08-03T16:00:00Z", entries: [{ exerciseId: "bb-bench", sets: [S(200, 8, 2)] }] },
+    { id: "c", status: "completed", startedAt: "2026-08-05T16:00:00Z", entries: [{ exerciseId: "bb-bench", sets: [S(62.5, 8, 2)] }] }
+  ] };
+  M.recomputeAllPRs(stAll);
+  eq("abandoned session's monster set is not a PR", stAll.sessions[1].entries[0].sets[0].prFlags, []);
+  eq("later real session still gets its weight PR (abandoned ignored)",
+    stAll.sessions[2].entries[0].sets[0].prFlags.indexOf("weight") > -1, true);
 
   document.getElementById("summary").innerHTML =
-    (fail === 0 ? '<span class="ok">' : '<span class="fail">') +
-    pass + " passed, " + fail + " failed</span>";
+    (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
 })();
 </script>
 </body>

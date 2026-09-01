@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach — migration tests</title>
+<style>
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:820px}
+  h1{font-size:18px}
+  .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
+  .row{padding:3px 0; border-bottom:1px solid #eee}
+  #summary{margin:14px 0; font-weight:700; font-size:15px}
+</style>
+</head>
+<body>
+<h1>Coach — migration tests (v1 → v2)</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+
+<script src="../js/util.js"></script>
+<script src="../js/data.js"></script>
+<script src="../js/store.js"></script>
+<script src="../js/model.js"></script>
+<script>
+(function () {
+  var out = document.getElementById("out"), pass = 0, fail = 0;
+  function ok(name, cond) {
+    var d = document.createElement("div");
+    d.className = "row " + (cond ? "ok" : "fail");
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d);
+    cond ? pass++ : fail++;
+  }
+  function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
+
+  // A realistic Stage-1 (schema 1) payload.
+  var v1 = {
+    schemaVersion: 1,
+    settings: { units: "kg", phaseStartDate: "2026-08-18", phaseLengthWeeks: 6, blockPhases: 3,
+      kcalTarget: 3450, proteinTarget: 200, bwTrendTargetKgPerWeek: 0.25, theme: "dark",
+      healthShortcutName: "Log Strength Workout" },
+    rotationIndex: 2,
+    exercises: [
+      { id: "bb-bench", name: "Barbell Bench Press", muscleGroup: "chest", equipment: "barbell" },
+      { id: "back-squat", name: "Back Squat", muscleGroup: "legs", equipment: "barbell" }
+    ],
+    program: { name: "Upper-emphasis block", daysPerWeek: 4, rotateOn: "phase",
+      variants: [{ label: "A", days: [{ id: "A-push", name: "Upper · Push", focusTags: ["chest"],
+        slots: [{ exerciseId: "bb-bench", altIds: ["db-bench"], sets: 4, repLow: 6, repHigh: 9, rir: 2 }] }] }] },
+    activeSession: {
+      id: "s-active", date: "2026-09-01", startedAt: "2026-09-01T08:30:00Z", endedAt: null,
+      variantLabel: "A", dayTemplateId: "A-lower", dayName: "Lower", dayIndex: 1, phase: 3, week: 3,
+      bodyweightAtSession: null, notes: "", healthLogged: false,
+      entries: [{ id: "e1", slotId: "A-lower:0", prescribedExerciseId: "back-squat", exerciseId: "back-squat",
+        altIds: ["hack-squat"], slot: { sets: 4, repLow: 6, repHigh: 10, rir: 2, note: "" }, wasSwapped: false, order: 0,
+        sets: [{ weightKg: 100, reps: 5, rir: 2, warmup: false, e1rm: 116.67, prFlags: [] }] }]
+    },
+    sessions: [{
+      id: "s1", date: "2026-08-25", startedAt: "2026-08-25T16:30:00Z", endedAt: "2026-08-25T17:20:00Z",
+      variantLabel: "A", dayTemplateId: "A-push", dayName: "Upper · Push", dayIndex: 0, phase: 3, week: 2,
+      bodyweightAtSession: null, notes: "felt strong", healthLogged: false,
+      entries: [{ id: "e1", slotId: "A-push:0", prescribedExerciseId: "bb-bench", exerciseId: "bb-bench",
+        altIds: ["db-bench"], slot: { sets: 4, repLow: 6, repHigh: 9, rir: 2, note: "" }, wasSwapped: false, order: 0,
+        sets: [
+          { weightKg: 40, reps: 5, rir: 4, warmup: true, e1rm: 46.67, prFlags: [] },
+          { weightKg: 62.5, reps: 8, rir: 2, warmup: false, e1rm: 79.17, prFlags: ["weight", "e1rm"] },
+          { weightKg: 62.5, reps: 7, rir: 1, warmup: false, e1rm: 77.08, prFlags: [] }
+        ] }]
+    }],
+    bodyweights: [], recovery: [], nutrition: [], cardio: []
+  };
+
+  // inspectImport runs the real v1->v2 migration + validation without touching localStorage.
+  var res = App.store.inspectImport(JSON.stringify(v1));
+  ok("migration + validation succeed", res.ok === true);
+  if (!res.ok) { finish(); return; }
+  var p = res.parsed;
+
+  eq("schemaVersion is 2", p.schemaVersion, 2);
+  eq("timezone stamped", p.meta.timezone, "Australia/Perth");
+  eq("migration recorded once", (p.meta.migrationHistory || []).map(function (m) { return m.from + "->" + m.to; }), ["1->2"]);
+  ok("meta.createdAt uses earliest session date", p.meta.createdAt === "2026-08-25" || /^2026-/.test(p.meta.createdAt));
+
+  eq("session count unchanged", p.sessions.length, 1);
+  eq("old single program removed", p.program, undefined);
+  eq("programVersions created", p.programVersions.length, 1);
+  eq("program version id", p.programVersions[0].id, "pv1");
+  eq("effectiveStartDate from phaseStartDate", p.programVersions[0].effectiveStartDate, "2026-08-18");
+  ok("program slots got planSlotId", p.programVersions[0].days.every(function (d) { return d.slots.every(function (s) { return !!s.planSlotId; }); }));
+
+  eq("activeSession -> draft", p.activeSession.status, "draft");
+  eq("activeSession dayId derived (A-lower -> lower)", p.activeSession.dayId, "lower");
+
+  var s = p.sessions[0];
+  eq("session status completed", s.status, "completed");
+  eq("session startMode scheduled", s.startMode, "scheduled");
+  eq("session advancesRotation true", s.advancesRotation, true);
+  eq("session dayId derived (A-push -> push)", s.dayId, "push");
+  eq("rotationPositionSnapshot from dayIndex", s.rotationPositionSnapshot, 0);
+  eq("phase snapshot preserved", [s.phase, s.week], [3, 2]);
+  eq("session note preserved", s.notes, "felt strong");
+
+  var sets = s.entries[0].sets;
+  eq("warm-up flag -> type warmup", sets[0].type, "warmup");
+  ok("no legacy warmup key remains", !("warmup" in sets[0]));
+  eq("working set -> type working", sets[1].type, "working");
+  eq("weight preserved", sets[1].weightKg, 62.5);
+  eq("reps preserved", sets[1].reps, 8);
+  eq("rir preserved", sets[1].rir, 2);
+  eq("prFlags preserved", sets[1].prFlags, ["weight", "e1rm"]);
+  ok("every set has an id", sets.every(function (x) { return !!x.id; }));
+
+  var bench = p.exercises.filter(function (e) { return e.id === "bb-bench"; })[0];
+  eq("exercise enriched with family", bench.movementFamilyId, "flat-press");
+  eq("exercise enriched with increment", bench.defaultLoadIncrementKg, 2.5);
+  ok("missing seed exercises were added back", p.exercises.length >= App.EXERCISE_SEED.length);
+
+  ["bodyweights", "nutritionDays", "recoveryReadings", "readinessCheckins", "importEvents", "backups"]
+    .forEach(function (k) { ok("array present: " + k, Array.isArray(p[k])); });
+  eq("legacy nutrition array dropped", p.nutrition, undefined);
+  eq("legacy recovery array dropped", p.recovery, undefined);
+  eq("legacy cardio array dropped", p.cardio, undefined);
+
+  // idempotency: migrating the already-v2 result changes nothing structural
+  var res2 = App.store.inspectImport(JSON.stringify(p));
+  ok("re-import of v2 still valid", res2.ok === true);
+  eq("still schema 2", res2.parsed.schemaVersion, 2);
+  eq("session count still 1", res2.parsed.sessions.length, 1);
+  eq("migration history not doubled", (res2.parsed.meta.migrationHistory || []).length, 1);
+
+  // validation rejects junk
+  ok("validate rejects a bare object", App.store.validate({ schemaVersion: 2 }).ok === false);
+  ok("validate rejects wrong schema", App.store.validate(Object.assign({}, p, { schemaVersion: 1 })).ok === false);
+  ok("validate accepts the migrated state", App.store.validate(p).ok === true);
+
+  // a set with no warmup field at all still becomes 'working'
+  var v1b = JSON.parse(JSON.stringify(v1));
+  delete v1b.sessions[0].entries[0].sets[1].warmup;
+  eq("set with no warmup field -> working", App.store.inspectImport(JSON.stringify(v1b)).parsed.sessions[0].entries[0].sets[1].type, "working");
+
+  finish();
+  function finish() {
+    document.getElementById("summary").innerHTML =
+      (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
+  }
+})();
+</script>
+</body>
+</html>

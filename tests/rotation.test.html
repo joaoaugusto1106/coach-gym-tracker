@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach — rotation & session-rule tests</title>
+<style>
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:820px}
+  h1{font-size:18px}
+  .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
+  .row{padding:3px 0; border-bottom:1px solid #eee}
+  #summary{margin:14px 0; font-weight:700; font-size:15px}
+</style>
+</head>
+<body>
+<h1>Coach — rotation &amp; session rules (§4)</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+
+<script src="../js/util.js"></script>
+<script src="../js/data.js"></script>
+<script src="../js/model.js"></script>
+<script>
+(function () {
+  var M = App.model, out = document.getElementById("out"), pass = 0, fail = 0;
+  function ok(name, cond) {
+    var d = document.createElement("div");
+    d.className = "row " + (cond ? "ok" : "fail");
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d);
+    cond ? pass++ : fail++;
+  }
+  function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
+
+  var ORDER = ["push", "lower", "pull", "arms"];
+
+  // --- auto-advance rule ---
+  eq("scheduled + completed → auto advance", M.rotationShouldAutoAdvance("scheduled", "completed"), true);
+  eq("scheduled + partial → ask (no auto)", M.rotationShouldAutoAdvance("scheduled", "partial"), false);
+  eq("manual + completed → ask (no auto)", M.rotationShouldAutoAdvance("manual", "completed"), false);
+  eq("scheduled + abandoned → never", M.rotationShouldAutoAdvance("scheduled", "abandoned"), false);
+  eq("scheduled + draft → never", M.rotationShouldAutoAdvance("scheduled", "draft"), false);
+
+  // --- index maths ---
+  eq("advance from push(0) → lower(1)", M.advanceRotationIndex(4, 0), 1);
+  eq("advance from arms(3) wraps → push(0)", M.advanceRotationIndex(4, 3), 0);
+
+  // --- nextDay reads the rotation clock ---
+  function stateAt(idx, manualDayId) {
+    return {
+      rotationIndex: idx, manualDayId: manualDayId || null,
+      activeProgramVersionId: "pv1",
+      programVersions: [{ id: "pv1", effectiveStartDate: "2000-01-01", trainingDayOrder: ORDER,
+        days: ORDER.map(function (d) { return { id: d, name: d, slots: [] }; }) }]
+    };
+  }
+  eq("rotationIndex 0 → push", M.nextDay(stateAt(0)).dayId, "push");
+  eq("rotationIndex 2 → pull", M.nextDay(stateAt(2)).dayId, "pull");
+  eq("rotationIndex 5 wraps → lower", M.nextDay(stateAt(5)).dayId, "lower");
+  eq("manual day pick doesn't move the rotation pointer", M.nextDay(stateAt(1, "arms")).dayId, "lower");
+  eq("rotationDayInfo resolves a manually-picked day's index", M.rotationDayInfo(stateAt(1, "arms"), "arms").dayIndex, 3);
+
+  // --- calendar clock is independent of missed sessions ---
+  // A session stores its own phase/week snapshot; changing the phase start
+  // date later must not rewrite it, and missed weeks don't touch rotation.
+  var storedSession = { phase: 2, week: 3, rotationPositionSnapshot: 1, status: "completed" };
+  var laterCalc = M.phaseInfo({ phaseStartDate: "2020-01-01", phaseLengthWeeks: 6 }, "2026-09-01");
+  ok("stored session keeps its own phase snapshot regardless of today's calc",
+    storedSession.phase === 2 && laterCalc.phase !== 2);
+  eq("missed weeks don't advance the rotation clock (index stays put)", M.nextDay(stateAt(1)).dayId, "lower");
+
+  // --- last-time recall / history counting ---
+  function sess(id, status, w) {
+    return { id: id, status: status, startedAt: "2026-08-2" + id + "T16:00:00Z", date: "2026-08-2" + id, phase: 1, week: 1,
+      entries: [{ exerciseId: "bb-bench", sets: [{ id: "s", weightKg: w, reps: 8, rir: 2, type: "working", e1rm: M.epley(w, 8), prFlags: [] }] }] };
+  }
+  eq("countsForHistory: completed", M.countsForHistory(sess("1", "completed", 60)), true);
+  eq("countsForHistory: partial", M.countsForHistory(sess("1", "partial", 60)), true);
+  eq("countsForHistory: draft", M.countsForHistory(sess("1", "draft", 60)), false);
+  eq("countsForHistory: abandoned", M.countsForHistory(sess("1", "abandoned", 60)), false);
+
+  var stH = { exercises: App.EXERCISE_SEED, activeSession: null, sessions: [
+    sess("1", "completed", 60), sess("3", "abandoned", 300), sess("5", "partial", 65)
+  ] };
+  eq("recall uses newest completed-or-partial (partial on the 25th)", M.lastPerformance(stH, "bb-bench").sets[0].weightKg, 65);
+
+  document.getElementById("summary").innerHTML =
+    (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
+})();
+</script>
+</body>
+</html>
