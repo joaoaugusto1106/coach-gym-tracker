@@ -107,8 +107,9 @@
   eq("lastPerformance ignores warm-up-only entries",
     M.lastPerformance({ exercises: App.EXERCISE_SEED, sessions: [sess("1", "completed", "bb-bench", [S(40, 5, 4, "warmup")])] }, "bb-bench"), null);
 
-  // --- overload suggestion ---
   var ex = App.EXERCISE_SEED;
+
+  // --- overload suggestion ---
   function stateWithLast(exId, sets) {
     return { exercises: ex, activeSession: null,
       sessions: [{ id: "s1", status: "completed", date: "2026-08-25", startedAt: "2026-08-25T16:00:00Z", phase: 1, week: 2, entries: [{ exerciseId: exId, sets: sets }] }] };
@@ -131,6 +132,121 @@
     /26 kg/.test(M.overloadSuggestion(stateWithLast("incline-db-press", [S(24, 12, 3), S(24, 12, 2), S(24, 12, 2)]), "incline-db-press", { sets: 3, repLow: 8, repHigh: 12, rir: 2, loadIncrementKg: null }).headline));
   ok("slot loadIncrementKg overrides the exercise default",
     /61.25 kg/.test(M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2)]), "bb-bench", { sets: 4, repLow: 6, repHigh: 9, rir: 2, loadIncrementKg: 1.25 }).headline));
+
+  // ================= Stage 2: progression engine =================
+  function expo(dateSuffix, exId, sets, prescription) {
+    return { id: "s" + dateSuffix, status: "completed", date: "2026-08-" + dateSuffix,
+      startedAt: "2026-08-" + dateSuffix + "T16:00:00Z", phase: 1, week: 2,
+      entries: [{ exerciseId: exId, slot: prescription || null, sets: sets }] };
+  }
+  function stateOf(sessions) { return { exercises: ex, activeSession: null, sessions: sessions }; }
+  var SLOT = { sets: 4, repLow: 6, repHigh: 9, rir: 2, loadIncrementKg: null };
+
+  // loading patterns
+  eq("pattern: straight", M.loadingPattern([S(60, 8, 2), S(60, 8, 2)]), "straight");
+  eq("pattern: top set then back-offs", M.loadingPattern([S(100, 5, 1), S(90, 8, 2), S(90, 8, 2)]), "top-set-backoff");
+  eq("pattern: ascending is varied", M.loadingPattern([S(80, 8, 3), S(90, 6, 2), S(100, 4, 1)]), "varied");
+
+  // exposures returns newest-first, one per session, valid only
+  var stEx = stateOf([expo("21", "bb-bench", [S(60, 8, 2)]), expo("25", "bb-bench", [S(62.5, 8, 2)])]);
+  eq("exposures newest first", M.exposures(stEx, "bb-bench").map(function (e) { return e.date; }), ["2026-08-25", "2026-08-21"]);
+  eq("exposures limit works", M.exposures(stEx, "bb-bench", null, 1).length, 1);
+
+  // --- the four base actions ---
+  var rAdd = M.recommendation(stateOf([expo("25", "bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 3)], SLOT)]), "bb-bench", SLOT);
+  eq("add-load when every set tops the range at target RIR", rAdd.base.action, "add-load");
+  eq("add-load target is last top + increment", rAdd.base.targetWeightKg, 62.5);
+  ok("add-load reason cites reps and RIR", /9 reps at RIR 2/.test(rAdd.base.reason));
+  eq("add-load confidence ok", rAdd.confidence.level, "ok");
+
+  var rHold = M.recommendation(stateOf([expo("25", "bb-bench", [S(60, 7, 2), S(60, 7, 2), S(60, 7, 2), S(60, 7, 2)], SLOT)]), "bb-bench", SLOT);
+  eq("hold-add-reps inside the range", rHold.base.action, "hold-add-reps");
+  eq("hold target keeps the weight", rHold.base.targetWeightKg, 60);
+  eq("hold target names a total-rep goal", rHold.base.targetRepsTotal, 29);
+
+  var rCons = M.recommendation(stateOf([expo("25", "bb-bench", [S(60, 8, 2), S(60, 4, 0)], SLOT)]), "bb-bench", SLOT);
+  eq("consolidate after one bad session", rCons.base.action, "consolidate");
+  ok("consolidate explains the rep floor", /below 6 reps/.test(rCons.base.reason));
+
+  // two bad sessions in a row at the same weight -> reduce
+  var rRed = M.recommendation(stateOf([
+    expo("21", "bb-bench", [S(60, 8, 2), S(60, 4, 0)], SLOT),
+    expo("25", "bb-bench", [S(60, 7, 1), S(60, 5, 0)], SLOT)
+  ]), "bb-bench", SLOT);
+  eq("reduce-load only after repeated underperformance", rRed.base.action, "reduce-load");
+  eq("reduce target is one increment down", rRed.base.targetWeightKg, 57.5);
+  ok("reduce reason cites both dates", /21 Aug/.test(rRed.base.reason) && /25 Aug/.test(rRed.base.reason));
+  ok("reduce offers the cut-a-set alternative", /3 working sets/.test(rRed.base.reason));
+
+  // a single bad session after a good one does NOT reduce
+  eq("one bad session after a good one → consolidate, not reduce",
+    M.recommendation(stateOf([
+      expo("21", "bb-bench", [S(60, 9, 2), S(60, 9, 2)], SLOT),
+      expo("25", "bb-bench", [S(60, 4, 0)], SLOT)
+    ]), "bb-bench", SLOT).base.action, "consolidate");
+
+  // bad twice but at different weights -> not a reduce
+  eq("repeated underperformance at different weights → consolidate",
+    M.recommendation(stateOf([
+      expo("21", "bb-bench", [S(70, 4, 0)], SLOT),
+      expo("25", "bb-bench", [S(60, 4, 0)], SLOT)
+    ]), "bb-bench", SLOT).base.action, "consolidate");
+
+  // --- variable loading is preserved, not flattened ---
+  var rPat = M.recommendation(stateOf([expo("25", "bb-bench", [S(100, 9, 2), S(90, 9, 2), S(90, 9, 2), S(90, 9, 2)], SLOT)]), "bb-bench", SLOT);
+  eq("top-set/back-off pattern detected", rPat.base.pattern, "top-set-backoff");
+  ok("add-load keeps the back-off shape", /102\.5 kg top/.test(rPat.base.patternNote) && /92\.5 kg back-offs/.test(rPat.base.patternNote));
+  var rVar = M.recommendation(stateOf([expo("25", "bb-bench", [S(80, 7, 2), S(90, 7, 2), S(85, 7, 2)], SLOT)]), "bb-bench", SLOT);
+  eq("varied loading flagged", rVar.base.pattern, "varied");
+  ok("varied note lists the weights and says the target is the top set",
+    /80 kg/.test(rVar.base.patternNote) && /heaviest set/.test(rVar.base.patternNote));
+  eq("varied target is the heaviest weight", rVar.base.targetWeightKg, 90);
+
+  // --- confidence ---
+  var rNoRir = M.recommendation(stateOf([expo("25", "bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, null)], SLOT)]), "bb-bench", SLOT);
+  eq("missing RIR lowers confidence", rNoRir.confidence.level, "low");
+  ok("and says why", /RIR wasn't logged/.test(rNoRir.confidence.reasons[0]));
+  var rFew = M.recommendation(stateOf([expo("25", "bb-bench", [S(60, 9, 2)], SLOT)]), "bb-bench", SLOT);
+  eq("too few working sets lowers confidence", rFew.confidence.level, "low");
+  ok("and says how few", /1 of 4 working sets/.test(rFew.confidence.reasons[0]));
+  eq("too few sets also blocks add-load", rFew.base.action !== "add-load", true);
+  eq("no history → confidence none", M.recommendation(stateOf([]), "bb-bench", SLOT).confidence.level, "none");
+  eq("no history → establish", M.recommendation(stateOf([]), "bb-bench", SLOT).base.action, "establish");
+
+  // --- prescription changed too much to compare ---
+  var oldPrescription = { sets: 4, repLow: 15, repHigh: 20, rir: 1 };
+  var rInc = M.recommendation(stateOf([expo("25", "bb-bench", [S(30, 18, 1), S(30, 18, 1)], oldPrescription)]), "bb-bench", SLOT);
+  eq("wildly different prescription → not comparable", rInc.base.action, "establish");
+  ok("headline says so", /Not enough comparable data/.test(rInc.base.headline));
+  eq("comparable: same prescription", M.prescriptionComparable(SLOT, SLOT), true);
+  eq("comparable: small rep-range shift", M.prescriptionComparable({ sets: 4, repLow: 6, repHigh: 9 }, { sets: 4, repLow: 8, repHigh: 12 }), true);
+  eq("not comparable: 6–9 vs 15–20", M.prescriptionComparable({ sets: 4, repLow: 6, repHigh: 9 }, oldPrescription), false);
+  eq("not comparable: 2 vs 5 sets", M.prescriptionComparable({ sets: 2, repLow: 6, repHigh: 9 }, { sets: 5, repLow: 6, repHigh: 9 }), false);
+
+  // --- increments feed the target ---
+  eq("dumbbell add-load uses 2 kg",
+    M.recommendation(stateOf([expo("25", "incline-db-press", [S(24, 12, 2), S(24, 12, 2), S(24, 12, 2)], { sets: 3, repLow: 8, repHigh: 12, rir: 2, loadIncrementKg: null })]),
+      "incline-db-press", { sets: 3, repLow: 8, repHigh: 12, rir: 2, loadIncrementKg: null }).base.targetWeightKg, 26);
+  eq("slot override beats the exercise default",
+    M.recommendation(stateOf([expo("25", "bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2)], SLOT)]),
+      "bb-bench", { sets: 4, repLow: 6, repHigh: 9, rir: 2, loadIncrementKg: 1.25 }).base.targetWeightKg, 61.25);
+
+  // --- warm-ups and drops never influence the engine ---
+  var rWU = M.recommendation(stateOf([expo("25", "bb-bench",
+    [S(200, 1, 0, "warmup"), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(20, 20, 0, "drop")], SLOT)]), "bb-bench", SLOT);
+  eq("warm-up/drop excluded → still a clean add-load", rWU.base.action, "add-load");
+  eq("target ignores the 200 kg warm-up", rWU.base.targetWeightKg, 62.5);
+
+  // --- compact wrapper stays in sync ---
+  var sugW = M.overloadSuggestion(stateOf([expo("25", "bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2)], SLOT)]), "bb-bench", SLOT);
+  eq("wrapper tone", sugW.tone, "push");
+  eq("wrapper headline matches base", sugW.headline, rAdd.base.headline);
+  eq("confidenceText is null when confident", M.confidenceText("ok", []), null);
+  ok("confidenceText explains a low level", /Lower confidence/.test(M.confidenceText("low", ["RIR wasn't logged on every working set."])));
+
+  // --- PR labels: one badge, the rest in the detail ---
+  eq("prAllLabels lists every record", M.prAllLabels(["weight", "e1rm"], 65), ["Heaviest ever", "Best estimated 1RM"]);
+  eq("prAllLabels names the weight for a rep record", M.prAllLabels(["repsAtWeight"], 42.5), ["Most reps at 42.5 kg"]);
 
   // --- recomputeSessionPRs walks chronologically; warm-ups never PR ---
   var stPR = { sessions: [], exercises: ex };

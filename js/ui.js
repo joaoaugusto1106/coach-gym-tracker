@@ -55,6 +55,9 @@ window.App = window.App || {};
     '<symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 15H3zM12 10v4M12 17h.01"/></symbol>' +
     '<symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4L4 7l3 3M4 7h13M17 20l3-3-3-3M20 17H7"/></symbol>' +
     '<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>' +
+    '<symbol id="i-chevdown" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>' +
+    '<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 11v5.4M12 7.9h.01"/></symbol>' +
+    '<symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13.4" r="7.6"/><path d="M12 9.6v3.8l2.4 1.6M9.4 3h5.2"/></symbol>' +
     '</defs></svg>';
 
   function mountSprite() {
@@ -97,6 +100,54 @@ window.App = window.App || {};
       setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300);
     }, 2200);
   }
+
+  /* Rest timer. Lives outside #app so a re-render doesn't reset it.
+     Counts down from a target, then keeps counting up in green — the point is
+     to see how long you actually rested, not to be nagged. */
+  var timer = { node: null, endsAt: 0, tick: null, target: 0 };
+
+  function fmt(sec) {
+    var s = Math.abs(Math.round(sec));
+    return (s < 0 ? "-" : "") + Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2);
+  }
+
+  function timerRender() {
+    if (!timer.node) return;
+    var left = (timer.endsAt - Date.now()) / 1000;
+    var over = left <= 0;
+    timer.node.className = "resttimer" + (over ? " done" : "");
+    timer.label.textContent = over ? ("Rested " + fmt(timer.target - left)) : ("Rest " + fmt(left));
+  }
+
+  function timerStop() {
+    if (timer.tick) { clearInterval(timer.tick); timer.tick = null; }
+    if (timer.node && timer.node.parentNode) timer.node.parentNode.removeChild(timer.node);
+    timer.node = null;
+    document.body.classList.remove("resting");
+  }
+
+  function timerStart(seconds) {
+    timerStop();
+    timer.target = seconds;
+    timer.endsAt = Date.now() + seconds * 1000;
+    timer.label = el("span", { class: "rt-label" });
+    timer.node = el("div", { class: "resttimer" }, [
+      icon("timer", 15),
+      timer.label,
+      el("button", { class: "rt-btn", type: "button", onclick: function () { timer.endsAt += 30000; timerRender(); } }, ["+30s"]),
+      el("button", { class: "rt-btn", type: "button", "aria-label": "dismiss rest timer", onclick: timerStop }, [icon("x", 14)])
+    ]);
+    document.body.appendChild(timer.node);
+    document.body.classList.add("resting");
+    timerRender();
+    timer.tick = setInterval(function () {
+      timerRender();
+      // stop counting once it's clearly stale (5 min past target)
+      if (Date.now() - timer.endsAt > 300000) timerStop();
+    }, 1000);
+  }
+
+  App.restTimer = { start: timerStart, stop: timerStop, running: function () { return !!timer.node; } };
 
   App.ui = { el: el, icon: icon, sheet: sheet, toast: toast, mountSprite: mountSprite };
 })();

@@ -185,6 +185,8 @@ button.chip{cursor:pointer}
 .pr-line .ic{color:var(--prDot); flex:none; margin-top:1px}
 .pr-line-name{font-size:15px; font-weight:700}
 .pr-line-detail{font-size:12.5px; color:var(--ink2); font-variant-numeric:tabular-nums}
+.pr-line-extra{font-size:11.5px; color:var(--ink3); margin-top:1px}
+.conf-dot{color:var(--pr); font-size:9px; vertical-align:super}
 
 .sheet-backdrop{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.35);
   display:flex; align-items:flex-end; opacity:0; transition:opacity .25s}
@@ -248,6 +250,37 @@ button.chip{cursor:pointer}
 
 .noteinput{width:100%; font:inherit; font-size:14px; padding:10px 12px; border-radius:10px;
   background:var(--card2); border:1px solid var(--sep); color:var(--ink)}
+
+/* ---- Stage 2: coaching detail, repeat, rest timer ---- */
+.ex-name-btn{display:flex; align-items:center; gap:5px; background:none; border:0; padding:0;
+  color:var(--ink); font:inherit; cursor:pointer; text-align:left; flex:1; min-width:0}
+.ex-name-btn .ic{color:var(--ink3)}
+.ex-usernote{font-size:12px; color:var(--ink2); font-style:italic}
+
+.sug-pattern{font-size:12px; color:var(--ink2); line-height:1.4; margin-top:4px;
+  padding-left:8px; border-left:2px solid var(--sep)}
+.conf{display:flex; align-items:flex-start; gap:5px; font-size:11.5px; line-height:1.35; margin-top:6px; font-weight:600}
+.conf .ic{margin-top:1px}
+.conf-low{color:var(--pr)}
+.conf-none{color:var(--ink3)}
+
+/* the timer floats above the tab bar; the page gets extra room so it never
+   sits on top of the set-entry controls */
+body.resting .content{padding-bottom:calc(158px + env(safe-area-inset-bottom))}
+.resttimer{position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(96px + env(safe-area-inset-bottom)); z-index:70;
+  display:flex; align-items:center; gap:8px; padding:8px 10px 8px 13px; border-radius:14px;
+  background:var(--glass); backdrop-filter:blur(20px) saturate(180%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--glassBrd); box-shadow:0 6px 20px -6px rgba(0,0,0,.4);
+  font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--ink)}
+.resttimer .ic{color:var(--ink2)}
+.resttimer.done{color:var(--accent)}
+.resttimer.done .ic{color:var(--accent)}
+.rt-label{min-width:76px}
+.rt-btn{background:var(--card2); border:0; border-radius:9px; padding:6px 8px; min-width:34px;
+  color:var(--accent); font:inherit; font-size:12px; font-weight:700; cursor:pointer;
+  display:flex; align-items:center; justify-content:center}
 
 .warn-text{color:var(--warn)}
 .sched-dot{color:var(--accent); font-size:8px; line-height:1; margin-right:5px; vertical-align:middle}

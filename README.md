@@ -103,6 +103,31 @@ importEvents[] backups[]
 - Storage is `localStorage` (~2 KB/session; years of training fits comfortably). Revisit
   IndexedDB only if the stored size passes ~3.5 MB.
 
+## The progression engine
+
+Every recommendation is derived from your own logged working sets for that **exact**
+exercise, and every one carries a reason. Four actions:
+
+| When | Says |
+|---|---|
+| Every working set reached the top of the rep range at or above target RIR | **Add load** — last top set + your configured increment |
+| Sets stayed inside the range but didn't top it, effort near target | **Hold, add reps** — with a concrete total-rep goal |
+| A set fell below the rep floor, or effort ran far past target | **Consolidate** — repeat the weight cleanly |
+| Under target *twice in a row at the same weight* | **Reduce one increment, or cut a set** |
+
+It refuses to guess. Confidence drops to **low** (with the reason shown) when RIR is missing
+or you logged fewer working sets than prescribed — and low confidence blocks "add load". It
+returns **no recommendation at all** when there's no history, or when the prescription
+changed too much for last time's numbers to be a fair target.
+
+Loading patterns are preserved, never flattened: a top-set/back-off session is recognised
+and the suggestion keeps the same shape ("102.5 kg top, 92.5 kg back-offs"). Warm-up and
+drop sets are excluded from everything.
+
+Load increments default to 2 kg for dumbbells, 2.5 kg otherwise, and are configurable per
+exercise (tap the exercise name during a session). The setting drives both the weight
+stepper and the "add load" target.
+
 ## Devices
 
 Installing on two devices does **not** sync them — each browser has its own dataset. Use
@@ -115,8 +140,9 @@ would need a native app; it is not built and not planned for v1.
 1.5. ✅ Architecture & reliability — identity, movement families, program versioning,
    session states, set types, edit/undo/draft recovery, Perth dates, migrations, backups,
    import safety, tests
-2. Performance coach — exact-exercise recall, rep-range + RIR progression, PR
-   classification, explanations, confidence (partly present; hardened here)
+2. ✅ Performance coach — exact-exercise recall, rep-range + RIR progression with four
+   actions, repeated-underperformance handling, loading-pattern awareness, configurable
+   increments, PR classification, explanations, visible confidence, repeat-set, rest timer
 3. Program & weekly review — phase boundaries, planned vs completed, muscle-group volume
 4. Mobile & offline — PWA manifest, service worker, iPhone install, Mac → iPhone migration
 5. Nutrition & body weight — six checkpoints, adherence, rolling trend, portion nudges

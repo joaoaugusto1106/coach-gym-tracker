@@ -86,7 +86,10 @@ window.App = window.App || {};
       return el("div", { class: "exrow" }, [
         el("div", { class: "exrow-name", text: (i + 1) + ".  " + M.exerciseName(st, slot.defaultExerciseId) }),
         el("div", { class: "exrow-target", text: M.repRangeText(slot) + (slot.note ? "  ·  " + slot.note : "") }),
-        el("div", { class: "exrow-last" + (sug.tone === "none" ? " dim" : " sug-" + sug.tone), text: sug.headline })
+        el("div", { class: "exrow-last" + (sug.tone === "none" ? " dim" : " sug-" + sug.tone) }, [
+          sug.headline,
+          sug.confidence === "low" ? el("span", { class: "conf-dot", title: "Lower confidence — tap into the session for why", text: " ●" }) : null
+        ])
       ]);
     });
 
@@ -188,6 +191,7 @@ window.App = window.App || {};
     if (!confirm(hasData
       ? "Abandon this draft? It's kept in History (marked abandoned) but doesn't count toward progress or your rotation."
       : "Discard this empty draft?")) return;
+    App.restTimer.stop();
     if (hasData) {
       as.status = "abandoned";
       as.endedAt = U.nowISO();
@@ -245,6 +249,7 @@ window.App = window.App || {};
     var autoAdvance = M.rotationShouldAutoAdvance(as.startMode, status);
 
     function commit(advance) {
+      App.restTimer.stop();
       as.status = status;
       as.endedAt = U.nowISO();
       as.advancesRotation = advance;
@@ -284,11 +289,13 @@ window.App = window.App || {};
       session.dayName + " · " + M.shortDate(session.date) + " · " + capitalize(session.status) +
       (advanced ? " · rotation → " + nextName.replace(/^Upper · /, "") : " · rotation unchanged") }));
     prs.forEach(function (p) {
+      var all = M.prAllLabels(p.flags, p.weightKg);
       sh.body.appendChild(el("div", { class: "pr-line" }, [
         icon("trophy", 18),
         el("div", {}, [
           el("div", { class: "pr-line-name", text: M.exerciseName(st, p.exerciseId) }),
-          el("div", { class: "pr-line-detail", text: p.label + "  ·  " + p.weightKg + " kg × " + p.reps })
+          el("div", { class: "pr-line-detail", text: p.weightKg + " kg × " + p.reps + "  ·  " + all[0] }),
+          all.length > 1 ? el("div", { class: "pr-line-extra", text: "also: " + all.slice(1).join(", ") }) : null
         ])
       ]));
     });
@@ -438,34 +445,51 @@ window.App = window.App || {};
           }))])
       : el("p", { class: "hint", text: (d.type === "warmup" ? "Warm-up" : "Drop") + " sets aren't counted for suggestions or PRs." });
 
-    var logBtn = el("button", { class: "btn primary sm", type: "button", onclick: function () {
-      var w = parseFloat(d.weight), r = parseInt(d.reps, 10);
-      if (isNaN(w) || w < 0) { App.ui.toast("Enter a weight"); return; }
-      if (isNaN(r) || r < 1) { App.ui.toast("Enter reps"); return; }
+    function commitSet(weightKg, reps, rir, type) {
       var set = {
-        id: M.uid("set"), order: entry.sets.length, type: d.type,
-        weightKg: w, reps: r, rir: d.type === "working" ? (d.rir == null ? null : d.rir) : null,
-        loggedAt: U.nowISO(), note: null, e1rm: M.epley(w, r), prFlags: []
+        id: M.uid("set"), order: entry.sets.length, type: type,
+        weightKg: weightKg, reps: reps, rir: type === "working" ? (rir == null ? null : rir) : null,
+        loggedAt: U.nowISO(), note: null, e1rm: M.epley(weightKg, reps), prFlags: []
       };
       if (set.type === "working") {
-        var prior = M.priorSetsLive(st, entry.exerciseId, entry, entry.sets.length);
-        set.prFlags = M.prsForSet(prior, set);
+        set.prFlags = M.prsForSet(M.priorSetsLive(st, entry.exerciseId, entry, entry.sets.length), set);
       }
       entry.sets.push(set);
       as.updatedAt = U.nowISO();
       S.save(); render();
-      if (set.prFlags.length) App.ui.toast("New PR · " + M.prLabel(set.prFlags, w));
+      if (set.type === "working") App.restTimer.start(st.settings.restTimerDefaultSec || 150);
+      if (set.prFlags.length) {
+        var all = M.prAllLabels(set.prFlags, weightKg);
+        App.ui.toast("New PR · " + all.join(" · "));
+      }
+    }
+
+    var logBtn = el("button", { class: "btn primary sm", type: "button", onclick: function () {
+      var w = parseFloat(d.weight), r = parseInt(d.reps, 10);
+      if (isNaN(w) || w < 0) { App.ui.toast("Enter a weight"); return; }
+      if (isNaN(r) || r < 1) { App.ui.toast("Enter reps"); return; }
+      commitSet(w, r, d.rir, d.type);
     } }, ["Log " + (d.type === "working" ? "set" : d.type === "warmup" ? "warm-up" : "drop set")]);
+
+    // one-tap repeat of the set you just logged — the most common action
+    var lastLogged = entry.sets[entry.sets.length - 1];
+    var repeatBtn = lastLogged ? el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+      commitSet(lastLogged.weightKg, lastLogged.reps, lastLogged.rir, lastLogged.type);
+    } }, ["Repeat " + lastLogged.weightKg + " × " + lastLogged.reps]) : null;
+
+    var conf = M.confidenceText(sug.confidence, sug.confidenceReasons);
 
     return el("div", { class: "card ex" }, [
       el("div", { class: "ex-head" }, [
-        el("div", { class: "ex-name", text: ex ? ex.name : entry.exerciseId }),
+        el("button", { class: "ex-name-btn", type: "button", onclick: function () { exerciseOptions(st, as, entry); } },
+          [el("span", { class: "ex-name", text: ex ? ex.name : entry.exerciseId }), icon("chevdown", 14)]),
         swapBtn
       ]),
       el("div", { class: "ex-meta" }, [
         el("span", { class: "ex-target", text: M.repRangeText(entry.slot) }),
         entry.slot && entry.slot.note ? el("span", { class: "ex-note", text: entry.slot.note }) : null,
-        entry.wasSwapped ? el("span", { class: "ex-note", text: "Swapped — showing this exercise's own history" }) : null
+        entry.wasSwapped ? el("span", { class: "ex-note", text: "Swapped — showing this exercise's own history" }) : null,
+        entry.note ? el("span", { class: "ex-usernote", text: entry.note }) : null
       ]),
       last
         ? el("div", { class: "recall" }, [
@@ -481,10 +505,12 @@ window.App = window.App || {};
               ]);
             })),
             el("div", { class: "recall-sug sug-" + sug.tone }, [
-              icon(sug.tone === "back" ? "warn" : "up", 16),
+              icon(sug.tone === "back" ? "warn" : sug.tone === "none" ? "info" : "up", 16),
               el("div", {}, [
                 el("div", { class: "sug-head", text: sug.headline }),
-                el("div", { class: "sug-detail", text: sug.detail })
+                el("div", { class: "sug-detail", text: sug.detail }),
+                sug.patternNote ? el("div", { class: "sug-pattern", text: sug.patternNote }) : null,
+                conf ? el("div", { class: "conf conf-" + sug.confidence }, [icon("warn", 12), conf]) : null
               ])
             ])
           ])
@@ -495,14 +521,52 @@ window.App = window.App || {};
       setList,
       el("div", { class: "logform" }, [
         el("div", { class: "logfields" }, [
-          el("label", { class: "lf" }, [el("span", { class: "lflbl", text: "Weight (kg)" }), stepper(wInput, 2.5)]),
+          el("label", { class: "lf" }, [el("span", { class: "lflbl", text: "Weight (kg)" }), stepper(wInput, M.loadIncrement(ex, entry.slot))]),
           el("label", { class: "lf" }, [el("span", { class: "lflbl", text: "Reps" }), stepper(rInput, 1)])
         ]),
         rirRow,
         typeSeg,
-        logBtn
+        logBtn,
+        repeatBtn
       ])
     ]);
+  }
+
+  // Per-exercise options: load increment, a note, and what the app knows.
+  function exerciseOptions(st, as, entry) {
+    var ex = M.exerciseById(st, entry.exerciseId);
+    var sh = App.ui.sheet(ex ? ex.name : entry.exerciseId);
+    var cur = M.loadIncrement(ex, entry.slot);
+
+    sh.body.appendChild(el("p", { class: "hint", text:
+      "Movement family: " + M.familyName(st, entry.movementFamilyId) +
+      " · equipment: " + (ex ? ex.equipment : "—") }));
+
+    sh.body.appendChild(el("span", { class: "lflbl", text: "Smallest load step (kg)" }));
+    sh.body.appendChild(el("div", { class: "seg wide" }, [1, 1.25, 2, 2.5, 5].map(function (v) {
+      return el("button", { class: "segb" + (v === cur ? " on" : ""), type: "button", text: String(v),
+        onclick: function () {
+          if (ex) ex.defaultLoadIncrementKg = v;
+          if (entry.slot) entry.slot.loadIncrementKg = v;
+          // persist to the live program slot too, so it sticks for next time
+          var pv = M.activeProgram(st);
+          pv.days.forEach(function (dy) { dy.slots.forEach(function (sl) {
+            if (sl.planSlotId === entry.planSlotId) sl.loadIncrementKg = v;
+          }); });
+          S.save(); sh.close(); render();
+          App.ui.toast("Load step set to " + v + " kg");
+        } });
+    })));
+    sh.body.appendChild(el("p", { class: "hint", text: "Used by the weight stepper and by the “add load” suggestion." }));
+
+    var noteInput = el("input", { class: "noteinput", type: "text", value: entry.note || "",
+      placeholder: "Note for this exercise today (setup, cues, niggles)",
+      oninput: function (e) { entry.note = e.target.value; } });
+    sh.body.appendChild(noteInput);
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      as.updatedAt = U.nowISO(); S.save(); sh.close(); render();
+    } }, ["Done"]));
+    sh.open();
   }
 
   function workingIndex(sets, i) {

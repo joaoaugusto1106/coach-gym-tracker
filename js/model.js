@@ -116,24 +116,35 @@ window.App = window.App || {};
   function workingSets(sets) { return (sets || []).filter(function (s) { return s.type === "working"; }); }
   function countsForHistory(session) { return session && (session.status === "completed" || session.status === "partial"); }
 
-  // Most recent valid (completed/partial) performance of an EXACT exercise.
-  // Returns { date, phase, week, sets } — sets is every set for display; the
-  // engine filters to working sets itself.
-  function lastPerformance(state, exerciseId, excludeSessionId) {
+  // Every valid (completed/partial) exposure of an EXACT exercise, newest first.
+  // `sets` is every set for display; the engine filters to working sets itself.
+  function exposures(state, exerciseId, excludeSessionId, limit) {
     var sessions = (state.sessions || []).slice()
       .filter(countsForHistory)
       .sort(function (a, b) { return a.startedAt < b.startedAt ? 1 : (a.startedAt > b.startedAt ? -1 : 0); });
+    var out = [];
     for (var i = 0; i < sessions.length; i++) {
       var s = sessions[i];
       if (excludeSessionId && s.id === excludeSessionId) continue;
       for (var j = 0; j < s.entries.length; j++) {
         var en = s.entries[j];
         if (en.exerciseId === exerciseId && workingSets(en.sets).length) {
-          return { date: s.date, phase: s.phase, week: s.week, sets: en.sets };
+          out.push({
+            sessionId: s.id, date: s.date, phase: s.phase, week: s.week,
+            sets: en.sets, prescription: en.slot || null, planSlotId: en.planSlotId || null,
+            wasSwapped: !!en.wasSwapped
+          });
+          break;                       // one exposure per session
         }
       }
+      if (limit && out.length >= limit) break;
     }
-    return null;
+    return out;
+  }
+
+  // Most recent valid exposure, or null.
+  function lastPerformance(state, exerciseId, excludeSessionId) {
+    return exposures(state, exerciseId, excludeSessionId, 1)[0] || null;
   }
 
   function repRangeText(slot) {
@@ -170,6 +181,16 @@ window.App = window.App || {};
     if (flags.indexOf("weight") > -1) return "Heaviest";
     if (flags.indexOf("repsAtWeight") > -1) return "Most reps @ " + weightKg + " kg";
     return "Best e1RM";
+  }
+  // One badge is shown on the set row; the rest belong in the detail.
+  function prAllLabels(flags, weightKg) {
+    var out = [];
+    (flags || []).forEach(function (f) {
+      if (f === "weight") out.push("Heaviest ever");
+      else if (f === "repsAtWeight") out.push("Most reps at " + weightKg + " kg");
+      else if (f === "e1rm") out.push("Best estimated 1RM");
+    });
+    return out;
   }
 
   // Restamp prFlags for one session against all OTHER valid sessions +
@@ -248,73 +269,198 @@ window.App = window.App || {};
     return prs;
   }
 
-  // ---- progression suggestion --------------------------------------
+  // ---- progression engine -----------------------------------------
   function loadIncrement(ex, slot) {
     if (slot && slot.loadIncrementKg != null) return slot.loadIncrementKg;
     if (ex && ex.defaultLoadIncrementKg != null) return ex.defaultLoadIncrementKg;
     return (ex && ex.equipment === "dumbbell") ? 2 : 2.5;
   }
 
-  // tone: "push" | "hold" | "back" | "none"; confidence: "ok" | "low" | "none"
-  function overloadSuggestion(state, exerciseId, slot) {
-    var ex = exerciseById(state, exerciseId);
-    var lp = lastPerformance(state, exerciseId);
-    var repLow = slot ? slot.repLow : 8;
-    var repHigh = slot ? slot.repHigh : 12;
-    var rirTarget = slot ? slot.rir : 2;
-    var span = repLow === repHigh ? (repLow + " reps") : (repLow + "–" + repHigh + " reps");
+  function defaultSlot() { return { sets: 3, repLow: 8, repHigh: 12, rir: 2, loadIncrementKg: null }; }
 
-    if (!lp) {
+  // A prescription change big enough that comparing to it would mislead.
+  function prescriptionComparable(a, b) {
+    if (!a || !b) return true;                       // nothing to compare against
+    if (Math.abs((a.repLow || 0) - (b.repLow || 0)) > 4) return false;
+    if (Math.abs((a.repHigh || 0) - (b.repHigh || 0)) > 4) return false;
+    if (Math.abs((a.sets || 0) - (b.sets || 0)) > 1) return false;
+    return true;
+  }
+
+  // How the load was arranged across working sets.
+  // "straight" — one weight;  "top-set-backoff" — heaviest first, then lighter;
+  // "varied" — anything else (e.g. ascending pyramids).
+  function loadingPattern(sets) {
+    var weights = sets.map(function (s) { return round2(s.weightKg); });
+    var distinct = weights.filter(function (w, i, a) { return a.indexOf(w) === i; });
+    if (distinct.length <= 1) return "straight";
+    var maxW = Math.max.apply(null, weights);
+    if (weights[0] === maxW && weights.slice(1).every(function (w) { return w <= maxW; })) return "top-set-backoff";
+    return "varied";
+  }
+
+  // Summarise one exposure's working sets against a prescription.
+  function analyseExposure(exposure, slot) {
+    var sets = workingSets(exposure.sets);
+    var weights = sets.map(function (s) { return round2(s.weightKg); });
+    var topWeight = Math.max.apply(null, weights);
+    var atTop = sets.filter(function (s) { return round2(s.weightKg) === topWeight; });
+    var rirs = sets.map(function (s) { return (s.rir == null) ? slot.rir : s.rir; });
+    return {
+      sets: sets,
+      count: sets.length,
+      pattern: loadingPattern(sets),
+      distinctWeights: weights.filter(function (w, i, a) { return a.indexOf(w) === i; }),
+      topWeight: topWeight,
+      backoffWeight: Math.min.apply(null, weights),
+      repsAtTop: Math.max.apply(null, atTop.map(function (s) { return s.reps; })),
+      totalReps: sets.reduce(function (a, s) { return a + s.reps; }, 0),
+      minRir: Math.min.apply(null, rirs),
+      missingRir: sets.some(function (s) { return s.rir == null; }),
+      allAtTopOfRange: sets.every(function (s) { return s.reps >= slot.repHigh; }),
+      anyBelowFloor: sets.some(function (s) { return s.reps < slot.repLow; }),
+      enoughSets: sets.length >= Math.max(1, slot.sets - 1)
+    };
+  }
+
+  function underperformed(a, slot) {
+    return a.anyBelowFloor || a.minRir <= slot.rir - 2;
+  }
+
+  function kgList(ws) { return ws.map(function (w) { return round2(w) + " kg"; }).join(" / "); }
+
+  // The full, explainable recommendation for one exercise.
+  //   base       what your own training says to do next
+  //   today      a temporary recovery-driven softening (Stage 6; null for now)
+  //   confidence how much to trust it, and why
+  function recommendation(state, exerciseId, slot, excludeSessionId) {
+    slot = slot || defaultSlot();
+    var ex = exerciseById(state, exerciseId);
+    var inc = loadIncrement(ex, slot);
+    var hist = exposures(state, exerciseId, excludeSessionId, 3);
+    var last = hist[0] || null;
+    var prev = hist[1] || null;
+    var span = slot.repLow === slot.repHigh ? (slot.repLow + " reps") : (slot.repLow + "–" + slot.repHigh + " reps");
+    var reasons = [];
+
+    if (!last) {
       return {
-        tone: "none", confidence: "none",
-        headline: "First recorded performance",
-        detail: "Pick a weight you can hold for " + span + " with about " + rirTarget + " left in reserve, then log it — that's your baseline."
+        base: {
+          action: "establish", tone: "none",
+          headline: "First recorded performance",
+          reason: "Pick a weight you can hold for " + span + " with about " + slot.rir + " left in reserve, then log it — that's your baseline.",
+          targetWeightKg: null, incrementKg: inc, pattern: null, patternNote: null
+        },
+        confidence: { level: "none", reasons: ["No previous performance of this exact exercise."] },
+        last: null, previous: null, history: hist, today: null
       };
     }
 
-    var sets = workingSets(lp.sets);
-    if (!sets.length) sets = lp.sets.slice();
-    var missingRir = sets.some(function (s) { return s.rir == null; });
-    var rirs = sets.map(function (s) { return (s.rir == null) ? rirTarget : s.rir; });
-    var minRir = Math.min.apply(null, rirs);
-    var top = sets.slice().sort(function (a, b) { return e1rmOf(b) - e1rmOf(a); })[0];
-    var atTop = sets.filter(function (s) { return round2(s.weightKg) === round2(top.weightKg); });
-    var repsAtTop = Math.max.apply(null, atTop.map(function (s) { return s.reps; }));
-    var totalReps = sets.reduce(function (a, s) { return a + s.reps; }, 0);
-    var enoughSets = sets.length >= (slot ? Math.max(1, slot.sets - 1) : 1);
-    var confidence = (missingRir || !enoughSets) ? "low" : "ok";
-    var inc = loadIncrement(ex, slot);
-    var allAtTop = sets.every(function (s) { return s.reps >= repHigh; });
-    var anyBelowFloor = sets.some(function (s) { return s.reps < repLow; });
-
-    var res;
-    if (!anyBelowFloor && allAtTop && minRir >= rirTarget && enoughSets) {
-      res = {
-        tone: "push",
-        headline: "Add load — " + round2(top.weightKg + inc) + " kg × " + repLow + "+",
-        detail: "All sets hit " + repHigh + " reps at RIR ≥ " + rirTarget + ". Add " + inc + " kg."
+    if (!prescriptionComparable(last.prescription, slot)) {
+      return {
+        base: {
+          action: "establish", tone: "none",
+          headline: "Not enough comparable data",
+          reason: "The prescription changed a lot since " + shortDate(last.date) +
+            ", so last time's numbers aren't a fair target. Train to the new " + span + " at RIR " + slot.rir + " and re-baseline.",
+          targetWeightKg: null, incrementKg: inc, pattern: null, patternNote: null
+        },
+        confidence: { level: "none", reasons: ["The prescription changed substantially since the last exposure."] },
+        last: last, previous: prev, history: hist, today: null
       };
-    } else if (!anyBelowFloor && minRir >= rirTarget - 1) {
-      res = {
-        tone: "hold",
-        headline: "Hold " + round2(top.weightKg) + " kg — beat " + repsAtTop + " reps",
-        detail: "You did " + totalReps + " total reps in range last time. Keep the weight and aim for at least " + (totalReps + 1) + "."
+    }
+
+    var a = analyseExposure(last, slot);
+    if (a.missingRir) reasons.push("RIR wasn't logged on every working set.");
+    if (!a.enoughSets) reasons.push("Only " + a.count + " of " + slot.sets + " working sets were logged.");
+    var level = reasons.length ? "low" : "ok";
+
+    // pattern note — never flatten a top-set/back-off session into one number
+    var patternNote = null;
+    if (a.pattern === "top-set-backoff") {
+      patternNote = "Top set " + round2(a.topWeight) + " kg, back-offs at " + round2(a.backoffWeight) + " kg — keep the same shape.";
+    } else if (a.pattern === "varied") {
+      patternNote = "Weights varied last time (" + kgList(a.distinctWeights) + ") — the target below is for your heaviest set.";
+    }
+
+    var base;
+    if (!a.anyBelowFloor && a.allAtTopOfRange && a.minRir >= slot.rir && a.enoughSets) {
+      var newTop = round2(a.topWeight + inc);
+      base = {
+        action: "add-load", tone: "push",
+        headline: "Add load — " + newTop + " kg × " + slot.repLow + "+",
+        reason: "All " + a.count + " working sets reached " + slot.repHigh + " reps at RIR " + a.minRir +
+          " or better. Add " + inc + " kg and clear " + slot.repLow + "+ reps.",
+        targetWeightKg: newTop, targetRepsTotal: null, incrementKg: inc,
+        pattern: a.pattern,
+        patternNote: a.pattern === "top-set-backoff"
+          ? "Add " + inc + " kg across the board: " + newTop + " kg top, " + round2(a.backoffWeight + inc) + " kg back-offs."
+          : patternNote
+      };
+    } else if (!a.anyBelowFloor && a.minRir >= slot.rir - 1) {
+      base = {
+        action: "hold-add-reps", tone: "hold",
+        headline: "Hold " + round2(a.topWeight) + " kg — beat " + a.repsAtTop + " reps",
+        reason: "You stayed inside " + span + " but didn't reach " + slot.repHigh +
+          " across the board. Keep " + round2(a.topWeight) + " kg and add reps — " + a.totalReps +
+          " total working reps last time, so aim for " + (a.totalReps + 1) + "+.",
+        targetWeightKg: round2(a.topWeight), targetRepsTotal: a.totalReps + 1, incrementKg: inc,
+        pattern: a.pattern, patternNote: patternNote
+      };
+    } else if (prev && prescriptionComparable(prev.prescription, slot) &&
+               underperformed(analyseExposure(prev, slot), slot) &&
+               round2(analyseExposure(prev, slot).topWeight) === round2(a.topWeight)) {
+      var reduced = round2(Math.max(0, a.topWeight - inc));
+      base = {
+        action: "reduce-load", tone: "back",
+        headline: "Try " + reduced + " kg — or cut a set",
+        reason: "Two sessions in a row under target at " + round2(a.topWeight) + " kg (" +
+          shortDate(prev.date) + " and " + shortDate(last.date) + "). Either drop to " + reduced +
+          " kg, or keep " + round2(a.topWeight) + " kg and cut to " + Math.max(1, slot.sets - 1) + " working sets.",
+        targetWeightKg: reduced, targetRepsTotal: null, incrementKg: inc,
+        pattern: a.pattern, patternNote: patternNote
       };
     } else {
-      res = {
-        tone: "back",
-        headline: "Hold " + round2(top.weightKg) + " kg — consolidate",
-        detail: anyBelowFloor
-          ? "A set dropped below " + repLow + " reps. Repeat this weight cleanly before adding load."
-          : "Effort ran well past the RIR " + rirTarget + " target. Repeat the weight and tighten it up first."
+      base = {
+        action: "consolidate", tone: "back",
+        headline: "Hold " + round2(a.topWeight) + " kg — consolidate",
+        reason: a.anyBelowFloor
+          ? "A working set dropped below " + slot.repLow + " reps. Repeat " + round2(a.topWeight) +
+            " kg and get all sets back in range before adding load."
+          : "Effort ran well past the RIR " + slot.rir + " target (down to RIR " + a.minRir +
+            "). Repeat " + round2(a.topWeight) + " kg and tighten it up first.",
+        targetWeightKg: round2(a.topWeight), targetRepsTotal: null, incrementKg: inc,
+        pattern: a.pattern, patternNote: patternNote
       };
     }
-    res.confidence = confidence;
-    if (confidence === "low") {
-      res.detail += missingRir ? "  (lower confidence — RIR wasn't logged on every set.)"
-        : "  (lower confidence — fewer working sets than prescribed last time.)";
-    }
-    return res;
+
+    return {
+      base: base,
+      confidence: { level: level, reasons: reasons },
+      last: last, previous: prev, history: hist, analysis: a, today: null
+    };
+  }
+
+  // Compact view of the recommendation, for list rows and cards.
+  // tone: "push" | "hold" | "back" | "none"; confidence: "ok" | "low" | "none"
+  function overloadSuggestion(state, exerciseId, slot, excludeSessionId) {
+    var r = recommendation(state, exerciseId, slot, excludeSessionId);
+    return {
+      tone: r.base.tone,
+      action: r.base.action,
+      headline: r.base.headline,
+      detail: r.base.reason,
+      patternNote: r.base.patternNote,
+      confidence: r.confidence.level,
+      confidenceReasons: r.confidence.reasons,
+      recommendation: r
+    };
+  }
+
+  function confidenceText(level, reasons) {
+    if (level === "ok") return null;
+    if (level === "none") return (reasons && reasons[0]) || "Not enough comparable data.";
+    return "Lower confidence — " + ((reasons && reasons.join(" ")) || "incomplete data.");
   }
 
   App.model = {
@@ -328,12 +474,15 @@ window.App = window.App || {};
     rotationShouldAutoAdvance: rotationShouldAutoAdvance, advanceRotationIndex: advanceRotationIndex,
     exerciseById: exerciseById, exerciseName: exerciseName, familyName: familyName,
     workingSets: workingSets, countsForHistory: countsForHistory,
-    lastPerformance: lastPerformance,
+    lastPerformance: lastPerformance, exposures: exposures,
     repRangeText: repRangeText, setsText: setsText, uid: uid,
-    prsForSet: prsForSet, prLabel: prLabel,
+    prsForSet: prsForSet, prLabel: prLabel, prAllLabels: prAllLabels,
     priorSetsLive: priorSetsLive,
     recomputeSessionPRs: recomputeSessionPRs, recomputeAllPRs: recomputeAllPRs,
     collectSessionPRs: collectSessionPRs,
-    overloadSuggestion: overloadSuggestion, loadIncrement: loadIncrement
+    recommendation: recommendation, overloadSuggestion: overloadSuggestion,
+    confidenceText: confidenceText, loadIncrement: loadIncrement,
+    loadingPattern: loadingPattern, analyseExposure: analyseExposure,
+    prescriptionComparable: prescriptionComparable
   };
 })();
