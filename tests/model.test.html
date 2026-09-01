@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach — model tests</title>
+<style>
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:760px}
+  h1{font-size:18px}
+  .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
+  .row{padding:3px 0; border-bottom:1px solid #eee; font-variant-numeric:tabular-nums}
+  #summary{margin:14px 0; font-weight:700}
+  code{background:#f2f2f2; padding:1px 4px; border-radius:4px}
+</style>
+</head>
+<body>
+<h1>Coach — model tests</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+
+<script src="../js/data.js"></script>
+<script src="../js/model.js"></script>
+<script>
+(function () {
+  var M = App.model, out = document.getElementById("out"), pass = 0, fail = 0;
+  function ok(name, cond) {
+    var d = document.createElement("div");
+    d.className = "row " + (cond ? "ok" : "fail");
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d);
+    cond ? pass++ : fail++;
+  }
+  function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
+  function S(w, r, rir) { return { weightKg: w, reps: r, rir: rir, warmup: false, e1rm: M.epley(w, r) }; }
+
+  // --- Epley ---
+  ok("epley 100x1 == 100", Math.abs(M.epley(100, 1) - 103.333) < 0.01 || M.epley(100,1) === 100 + 100/30);
+  ok("epley 60x10 ≈ 80", Math.abs(M.epley(60, 10) - 80) < 0.0001);
+
+  // --- phase / week / variant ---
+  var pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-01-01");
+  eq("phase 1 wk 1 on start day", [pi.phase, pi.week, pi.variantLabel], [1, 1, "A"]);
+  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-02-13"); // ~6.1 weeks later
+  eq("phase 2 wk 1 after 6 weeks", [pi.phase, pi.week, pi.variantLabel], [2, 1, "B"]);
+  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-04-30"); // ~17 weeks
+  eq("phase 3 → variant C", pi.variantLabel, "C");
+  pi = M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-06-15"); // ~24 weeks
+  eq("phase 5 → back to variant A", [pi.phase, pi.variantLabel], [5, "A"]);
+  eq("deload flag on last week", M.phaseInfo({ phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 }, "2026-02-05").isDeloadWeek, true);
+
+  // --- PR detection ---
+  eq("no history → no PR", M.prsForSet([], S(100, 5, 2)), []);
+  eq("heavier than ever → weight + e1rm", M.prsForSet([S(60, 8, 2)], S(62.5, 8, 2)), ["weight", "e1rm"]);
+  eq("more reps at a known weight → repsAtWeight", M.prsForSet([S(60, 8, 2), S(60, 9, 2)], S(60, 10, 1)).sort(), ["e1rm", "repsAtWeight"]);
+  eq("weaker set → nothing", M.prsForSet([S(60, 8, 2), S(70, 5, 0)], S(60, 7, 3)), []);
+  eq("same as best → nothing (must beat)", M.prsForSet([S(60, 8, 2)], S(60, 8, 2)), []);
+  eq("e1rm-only PR", M.prsForSet([S(60, 5, 2), S(50, 10, 2)], S(57.5, 9, 1)), ["e1rm"]);
+  eq("prLabel priority weight", M.prLabel(["weight", "e1rm"], 65), "Heaviest");
+  eq("prLabel priority reps over e1rm", M.prLabel(["e1rm", "repsAtWeight"], 40), "Most reps @ 40 kg");
+
+  // --- overload suggestion ---
+  var ex = App.EXERCISE_SEED;
+  function stateWithLast(exId, sets) {
+    return { exercises: ex, activeSession: null,
+      sessions: [{ id: "s1", date: "2026-08-25", startedAt: "2026-08-25T16:00:00Z", phase: 1, week: 2,
+        entries: [{ exerciseId: exId, sets: sets }] }] };
+  }
+  var slot = { sets: 4, repLow: 6, repHigh: 9, rir: 2 };
+  eq("all RIR≥2 → push",
+    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2), S(60, 8, 2), S(60, 8, 3)]), "bb-bench", slot).tone, "push");
+  eq("a set at RIR1 → hold",
+    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2), S(60, 8, 1)]), "bb-bench", slot).tone, "hold");
+  eq("a set at RIR0 → back",
+    M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2), S(60, 7, 0)]), "bb-bench", slot).tone, "back");
+  eq("no history → none",
+    M.overloadSuggestion({ exercises: ex, activeSession: null, sessions: [] }, "bb-bench", slot).tone, "none");
+  ok("push headline names a heavier number",
+    /(?:62\.5|65) kg/.test(M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 8, 2)]), "bb-bench", slot).headline));
+  ok("dumbbell increment is 2kg",
+    M.overloadSuggestion(stateWithLast("incline-db-press", [S(24, 10, 3)]), "incline-db-press", slot).headline.indexOf("26 kg") > -1);
+
+  // --- recomputeSessionPRs walks chronologically ---
+  var st = { sessions: [], exercises: ex };
+  var sess = { id: "x", entries: [{ exerciseId: "bb-bench", sets: [S(60, 8, 2), S(65, 8, 2), S(65, 9, 1)] }] };
+  st.sessions = [];
+  M.recomputeSessionPRs(st, sess);
+  eq("set1 no PR (first ever, nothing to beat)", sess.entries[0].sets[0].prFlags, []);
+  eq("set2 weight PR", sess.entries[0].sets[1].prFlags.indexOf("weight") > -1, true);
+  eq("set3 repsAtWeight PR (65kg, 9>8)", sess.entries[0].sets[2].prFlags.indexOf("repsAtWeight") > -1, true);
+
+  document.getElementById("summary").innerHTML =
+    (fail === 0 ? '<span class="ok">' : '<span class="fail">') +
+    pass + " passed, " + fail + " failed</span>";
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,604 @@
+<title>Beat Last Time</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#E7E8EA; --panel:#FCFDFC; --ink:#1C1E1D; --ink2:#5C605E;
+    --hair:rgba(0,0,0,.10); --accent:#1F8A4C;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#121413; --panel:#1B1E1D; --ink:#ECEEEC; --ink2:#9AA09C;
+      --hair:rgba(255,255,255,.12); --accent:#34C759;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#121413; --panel:#1B1E1D; --ink:#ECEEEC; --ink2:#9AA09C;
+    --hair:rgba(255,255,255,.12); --accent:#34C759;
+  }
+  *{box-sizing:border-box}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.55 -apple-system,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:56px 24px 96px}
+  header.intro{max-width:640px}
+  .kicker{font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 14px}
+  h1{font-size:clamp(30px,5vw,44px); line-height:1.08; letter-spacing:-.025em; margin:0 0 16px; text-wrap:balance; font-weight:750}
+  header.intro p{margin:0 0 12px; color:var(--ink2); font-size:17px}
+  .legend{display:flex; flex-wrap:wrap; gap:18px; margin:26px 0 0; padding:0; list-style:none}
+  .legend li{display:flex; align-items:center; gap:9px; font-size:13.5px; color:var(--ink2)}
+  .sw{width:14px; height:14px; border-radius:5px; flex:none}
+  .sw.g{background:#2AA55A} .sw.a{background:#FF9F0A} .sw.r{background:#FF453A}
+  .plate{margin-top:64px}
+  .plate > .cap{max-width:560px; margin:0 0 22px}
+  .plate .cap h2{font-size:20px; letter-spacing:-.01em; margin:0 0 7px; font-weight:700}
+  .plate .cap p{margin:0; color:var(--ink2); font-size:15px}
+  .frames{display:flex; flex-wrap:wrap; gap:40px}
+
+  /* ---- device frame ---- */
+  .frame{width:322px; padding:9px; border-radius:46px;
+    box-shadow:0 34px 70px -24px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.06);
+    flex:none}
+  .frame.light{background:#dcdce0}
+  .frame.dark{background:#0b0b0d}
+  .screen{position:relative; height:660px; border-radius:38px; overflow:hidden;
+    background:var(--ground); color:var(--ink);
+    font:15px/1.42 -apple-system,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .frame.light .screen{
+    --ground:#F2F2F7; --card:#FFF; --ink:#1C1C1E;
+    --ink2:rgba(60,60,67,.62); --ink3:rgba(60,60,67,.34); --sep:rgba(60,60,67,.16);
+    --accent:#1F8A4C; --accentSoft:rgba(31,138,76,.12);
+    --pr:#9A6206; --prSoft:rgba(255,159,10,.16); --prDot:#F09000;
+    --warn:#C4362A; --warnSoft:rgba(196,54,42,.10);
+    --glass:rgba(247,247,250,.72); --glassBrd:rgba(0,0,0,.07)}
+  .frame.dark .screen{
+    --ground:#000; --card:#1C1C1E; --card2:#2C2C2E; --ink:#F5F5F7;
+    --ink2:rgba(235,235,245,.62); --ink3:rgba(235,235,245,.34); --sep:rgba(84,84,88,.5);
+    --accent:#30D158; --accentSoft:rgba(48,209,88,.16);
+    --pr:#FFB84D; --prSoft:rgba(255,159,10,.18); --prDot:#FF9F0A;
+    --warn:#FF453A; --warnSoft:rgba(255,69,58,.16);
+    --glass:rgba(24,24,26,.6); --glassBrd:rgba(255,255,255,.1)}
+
+  .statusbar{height:24px; flex:none; display:flex; align-items:center; padding:0 24px;
+    font-size:12px; font-weight:600; color:var(--ink3); font-variant-numeric:tabular-nums}
+  .navbar{position:absolute; top:24px; left:0; right:0; height:44px; z-index:6;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--glass); backdrop-filter:blur(18px) saturate(180%);
+    -webkit-backdrop-filter:blur(18px) saturate(180%);
+    border-bottom:1px solid var(--glassBrd); font-weight:600; font-size:15px}
+  .navbar .lead,.navbar .trail{position:absolute; font-weight:400; font-size:15px; color:var(--accent);
+    display:flex; align-items:center; gap:1px}
+  .navbar .lead{left:12px} .navbar .trail{right:15px}
+  .content{position:absolute; inset:68px 0 84px; overflow:hidden;
+    padding:12px 15px; display:flex; flex-direction:column; gap:11px}
+  .content.pad-lt{padding-top:6px}
+  .largetitle{font-size:28px; font-weight:750; letter-spacing:-.02em; margin:2px 2px 4px}
+  .largetitle .sub{display:block; font-size:13px; font-weight:500; color:var(--ink3); letter-spacing:0; margin-top:2px}
+
+  .tabbar{position:absolute; left:0; right:0; bottom:0; height:84px; z-index:6;
+    padding:9px 6px 22px; display:flex;
+    background:var(--glass); backdrop-filter:blur(18px) saturate(180%);
+    -webkit-backdrop-filter:blur(18px) saturate(180%);
+    border-top:1px solid var(--glassBrd)}
+  .tab{flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+    font-size:10px; font-weight:550; color:var(--ink3)}
+  .tab.on{color:var(--accent)}
+  .tab .ic{width:25px; height:25px}
+
+  .card{background:var(--card); border-radius:16px; padding:13px 14px;
+    display:flex; flex-direction:column; gap:9px}
+  .card.hero{gap:11px}
+  .card.tintA{background:var(--accentSoft)}
+  .card.tintW{background:var(--warnSoft)}
+  .card.tintP{background:var(--prSoft)}
+  .eyebrow{font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--ink3)}
+  .rowb{display:flex; align-items:center; justify-content:space-between; gap:10px}
+  .muscle{display:flex; gap:6px; flex-wrap:wrap}
+  .chip{font-size:11.5px; font-weight:650; padding:3px 8px; border-radius:8px;
+    background:var(--accentSoft); color:var(--accent)}
+  .chip.m{background:var(--sep); color:var(--ink2)}
+  .setrow{display:flex; align-items:center; gap:9px; font-variant-numeric:tabular-nums;
+    font-size:15.5px; font-weight:650; padding:2px 0}
+  .setrow .n{color:var(--ink3); font-size:12px; font-weight:650; width:34px}
+  .setrow .rir{margin-left:auto; font-size:11.5px; font-weight:650; color:var(--ink3)}
+  .setrow.best{color:var(--accent)}
+  .hr{height:1px; background:var(--sep); margin:2px 0}
+  .target{display:flex; gap:7px; font-size:13.5px; font-weight:650; color:var(--accent); line-height:1.35}
+  .target .ic{width:16px; height:16px; flex:none; margin-top:1px}
+  .steprow{display:flex; gap:9px}
+  .field{flex:1; display:flex; flex-direction:column; gap:5px}
+  .field .lbl{font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink3)}
+  .stepper{display:flex; align-items:center; background:var(--ground); border-radius:12px}
+  .stepper button{width:40px; height:42px; display:grid; place-items:center; border:0;
+    background:transparent; color:var(--accent); cursor:pointer}
+  .stepper .ic{width:18px; height:18px}
+  .stepper .val{flex:1; text-align:center; font-size:18px; font-weight:750; font-variant-numeric:tabular-nums}
+  .stepper .val small{font-size:11px; font-weight:600; color:var(--ink3)}
+  .seg{display:flex; background:var(--ground); border-radius:11px; padding:3px; gap:3px}
+  .seg span{flex:1; text-align:center; font-size:12.5px; font-weight:650; padding:7px 0;
+    border-radius:8px; color:var(--ink2); font-variant-numeric:tabular-nums}
+  .seg span.on{background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.16)}
+  .linkbtn{align-self:flex-start; font-size:13.5px; font-weight:650; color:var(--accent);
+    display:flex; align-items:center; gap:4px}
+  .logged{display:flex; align-items:center; gap:8px; font-variant-numeric:tabular-nums;
+    font-size:15px; font-weight:700; padding:8px 10px; background:var(--ground); border-radius:11px}
+  .prtag{font-size:9.5px; font-weight:800; letter-spacing:.05em; padding:2px 6px;
+    border-radius:6px; background:var(--prSoft); color:var(--pr); margin-left:auto}
+  .prbadge{display:flex; align-items:center; gap:7px; padding:8px 4px}
+  .prbadge .ic{width:17px; height:17px; color:var(--prDot); flex:none}
+  .prbadge b{font-variant-numeric:tabular-nums}
+  .prbadge span{color:var(--ink3); font-size:11.5px; font-weight:600}
+  .banner{display:flex; gap:9px; padding:12px 13px; border-radius:15px;
+    background:var(--warnSoft); font-size:13px; line-height:1.4; font-weight:550}
+  .banner .ic{width:18px; height:18px; color:var(--warn); flex:none; margin-top:1px}
+  .banner b{color:var(--warn); font-weight:750}
+  .ok{display:flex; gap:9px; padding:12px 13px; border-radius:15px; background:var(--accentSoft);
+    font-size:13px; line-height:1.4; font-weight:550; color:var(--ink)}
+  .ok .ic{width:18px; height:18px; color:var(--accent); flex:none; margin-top:1px}
+
+  .refphoto{height:132px; border-radius:13px; background:
+    repeating-linear-gradient(135deg,var(--ground),var(--ground) 11px,transparent 11px,transparent 22px),var(--card2,var(--ground));
+    display:grid; place-items:center; color:var(--ink3); position:relative}
+  .refphoto .ic{width:40px; height:40px; opacity:.5}
+  .refphoto small{position:absolute; bottom:8px; right:10px; font-size:10px; font-weight:600}
+
+  .bignum{font-size:40px; font-weight:800; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1}
+  .delta{font-size:14px; font-weight:700; color:var(--accent); display:flex; align-items:center; gap:3px}
+  .delta .ic{width:14px; height:14px}
+
+  .vol{display:flex; flex-direction:column; gap:7px}
+  .vbar{display:grid; grid-template-columns:52px 1fr 26px; align-items:center; gap:8px; font-size:11.5px; font-weight:600; color:var(--ink2)}
+  .vbar .track{height:8px; border-radius:5px; background:var(--sep); overflow:hidden}
+  .vbar .fill{height:100%; border-radius:5px; background:var(--accent)}
+  .vbar b{color:var(--ink); font-variant-numeric:tabular-nums; text-align:right}
+
+  .phasediv{display:flex; align-items:center; gap:9px; margin:3px 2px; font-size:10.5px;
+    font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink3)}
+  .phasediv::before,.phasediv::after{content:""; flex:1; height:1px; background:var(--sep)}
+
+  .meal{display:flex; align-items:flex-start; gap:11px; padding:10px 4px}
+  .meal + .meal{border-top:1px solid var(--sep)}
+  .meal .box{width:22px; height:22px; border-radius:7px; border:2px solid var(--ink3); flex:none;
+    display:grid; place-items:center; margin-top:1px}
+  .meal .box .ic{width:14px; height:14px; color:#fff}
+  .meal.done .box{background:var(--accent); border-color:var(--accent)}
+  .meal.next{background:var(--accentSoft); border-radius:12px; margin:0 -6px; padding:10px}
+  .meal .txt{display:flex; flex-direction:column; gap:1px}
+  .meal .t{font-size:11px; font-weight:700; color:var(--ink3); letter-spacing:.03em}
+  .meal .d{font-size:13px; font-weight:550; line-height:1.35}
+  .meal.done .d{color:var(--ink2)}
+
+  .week{display:flex; gap:6px; align-items:flex-end; height:56px}
+  .week .d{flex:1; display:flex; flex-direction:column; align-items:center; gap:5px}
+  .week .col{width:100%; background:var(--accent); border-radius:4px}
+  .week .lab{font-size:9.5px; font-weight:600; color:var(--ink3)}
+
+  .baseline{display:flex; flex-direction:column; gap:11px}
+  .bl{display:grid; grid-template-columns:44px 1fr auto; align-items:center; gap:9px; font-size:12px; font-weight:600}
+  .bl .name{color:var(--ink2)}
+  .bl .track{height:6px; border-radius:4px; background:var(--sep); position:relative}
+  .bl .base{position:absolute; top:-3px; width:2px; height:12px; background:var(--ink3); border-radius:1px}
+  .bl .cur{position:absolute; top:-2px; width:10px; height:10px; border-radius:50%}
+  .bl .v{font-variant-numeric:tabular-nums; color:var(--ink)}
+  .bl.low .cur{background:var(--warn)} .bl.ok .cur{background:var(--accent)} .bl.hi .cur{background:var(--pr)}
+
+  .spark{width:100%; height:104px; display:block}
+  .gridln{stroke:var(--sep); stroke-width:1}
+  .trend{stroke:var(--accent); stroke-width:2.5; fill:none; stroke-linecap:round; stroke-linejoin:round}
+  .dot{fill:var(--accent)}
+  .scatter{fill:var(--ink3)}
+  .area{fill:var(--accentSoft)}
+
+  footer.close{margin-top:80px; max-width:640px; border-top:1px solid var(--hair); padding-top:34px}
+  footer.close h2{font-size:20px; margin:0 0 14px; font-weight:700}
+  footer.close ul{margin:0 0 22px; padding-left:20px; color:var(--ink2)}
+  footer.close li{margin:6px 0}
+  footer.close p{color:var(--ink2)}
+  .ic{fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round; stroke-linejoin:round}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6.5 8.5v7M4 10.2v3.6M17.5 8.5v7M20 10.2v3.6M7 12h10"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3.2"/><path d="M4 10h16M9 3v4M15 3v4"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4.2"/><circle cx="12" cy="13" r="2.4"/><path d="M12 10.6V8"/></symbol>
+  <symbol id="i-fork" viewBox="0 0 24 24"><path d="M7 3v6a2.2 2.2 0 0 0 4.4 0V3M9.2 15.2V21M16 3c-1.7 0-2.7 2.6-2.7 5.4 0 2.1 1 3.3 2.7 3.5V21"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V6M6 12l6-6 6 6"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v3.2a5 5 0 0 1-10 0zM7 6H4.6A2.5 2.5 0 0 0 7 9.6M17 6h2.4A2.5 2.5 0 0 1 17 9.6M10 12.4h4M9 20h6M12 12.4V20"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.4 6L14 5l2.3 7H21"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 15H3zM12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5l-4-4L4 16zM13.5 6.5l4 4"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="intro">
+    <p class="kicker">Design direction · v1</p>
+    <h1>Beat Last Time</h1>
+    <p>Seven screens, light and dark, at the size you'll actually hold. This is the visual system before any feature code — the palette, the type, the glass layer, the way a set gets logged. React to it and I'll adjust, then build stage&nbsp;1.</p>
+    <ul class="legend">
+      <li><span class="sw g"></span> Green — progress, "go", add load</li>
+      <li><span class="sw a"></span> Amber — a PR</li>
+      <li><span class="sw r"></span> Red — under-recovered, back off</li>
+    </ul>
+    <p style="margin-top:22px; font-size:14px">Type is the system font stack (renders as San Francisco on your devices) in three roles — big tabular numbers for weights, 17px semibold for controls, 11px tracked caps for labels. No downloaded font, no Inter, no emoji icons, no purple. Glass sits only on the tab bar and nav bar; every list and card underneath is opaque and full-contrast.</p>
+  </header>
+
+  <!-- ============ PLATE 1 — HERO, light + dark ============ -->
+  <section class="plate">
+    <div class="cap">
+      <h2>1 · Open an exercise → what to beat, before you type</h2>
+      <p>Last session's sets sit at the top the moment the screen opens. One green line turns them into an instruction. Entry below is two steppers and a five-way RIR control — pre-filled from your last set, so a normal set is one tap: "Add set".</p>
+    </div>
+    <div class="frames">
+      <!-- LIGHT -->
+      <div class="frame light">
+        <div class="screen">
+          <div class="statusbar"><span>16:38</span></div>
+          <div class="navbar"><span class="lead"><svg class="ic" width="18" height="18"><use href="#i-chev"/></svg>Chest</span>Incline DB Press<span class="trail">Done</span></div>
+          <div class="content">
+            <div class="muscle"><span class="chip">Phase 3 · Wk 2</span><span class="chip m">Chest</span></div>
+            <div class="card hero">
+              <div class="rowb"><span class="eyebrow">Last time · 25 Aug</span><span class="eyebrow">RIR</span></div>
+              <div class="setrow"><span class="n">1</span>40 kg&nbsp;×&nbsp;8<span class="rir">2</span></div>
+              <div class="setrow"><span class="n">2</span>40 kg&nbsp;×&nbsp;8<span class="rir">2</span></div>
+              <div class="setrow"><span class="n">3</span>40 kg&nbsp;×&nbsp;7<span class="rir">1</span></div>
+              <div class="hr"></div>
+              <div class="target"><svg class="ic"><use href="#i-up"/></svg><span>Beat 40&nbsp;kg&nbsp;×&nbsp;8. Two sets left 2+ in reserve — add 2.5&nbsp;kg, hold 8 reps.</span></div>
+            </div>
+            <div class="card">
+              <span class="eyebrow">Today · Set 4</span>
+              <div class="steprow">
+                <div class="field"><span class="lbl">Weight</span>
+                  <div class="stepper"><button><svg class="ic"><use href="#i-minus"/></svg></button><span class="val">42.5<small> kg</small></span><button><svg class="ic"><use href="#i-plus"/></svg></button></div>
+                </div>
+                <div class="field"><span class="lbl">Reps</span>
+                  <div class="stepper"><button><svg class="ic"><use href="#i-minus"/></svg></button><span class="val">8</span><button><svg class="ic"><use href="#i-plus"/></svg></button></div>
+                </div>
+              </div>
+              <div class="field"><span class="lbl">Reps in reserve</span>
+                <div class="seg"><span>0</span><span>1</span><span class="on">2</span><span>3</span><span>4</span></div>
+              </div>
+              <div class="linkbtn"><svg class="ic" width="16" height="16"><use href="#i-plus"/></svg> Add set</div>
+              <div class="logged"><span class="n" style="color:var(--ink3);font-size:12px">1</span>42.5&nbsp;×&nbsp;8 &nbsp;·&nbsp; RIR 2<span class="prtag">▲ Heaviest ever</span></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab on"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK -->
+      <div class="frame dark">
+        <div class="screen">
+          <div class="statusbar"><span>16:38</span></div>
+          <div class="navbar"><span class="lead"><svg class="ic" width="18" height="18"><use href="#i-chev"/></svg>Chest</span>Incline DB Press<span class="trail">Done</span></div>
+          <div class="content">
+            <div class="muscle"><span class="chip">Phase 3 · Wk 2</span><span class="chip m">Chest</span></div>
+            <div class="card hero">
+              <div class="rowb"><span class="eyebrow">Last time · 25 Aug</span><span class="eyebrow">RIR</span></div>
+              <div class="setrow"><span class="n">1</span>40 kg&nbsp;×&nbsp;8<span class="rir">2</span></div>
+              <div class="setrow"><span class="n">2</span>40 kg&nbsp;×&nbsp;8<span class="rir">2</span></div>
+              <div class="setrow"><span class="n">3</span>40 kg&nbsp;×&nbsp;7<span class="rir">1</span></div>
+              <div class="hr"></div>
+              <div class="target"><svg class="ic"><use href="#i-up"/></svg><span>Beat 40&nbsp;kg&nbsp;×&nbsp;8. Two sets left 2+ in reserve — add 2.5&nbsp;kg, hold 8 reps.</span></div>
+            </div>
+            <div class="card">
+              <span class="eyebrow">Today · Set 4</span>
+              <div class="steprow">
+                <div class="field"><span class="lbl">Weight</span>
+                  <div class="stepper"><button><svg class="ic"><use href="#i-minus"/></svg></button><span class="val">42.5<small> kg</small></span><button><svg class="ic"><use href="#i-plus"/></svg></button></div>
+                </div>
+                <div class="field"><span class="lbl">Reps</span>
+                  <div class="stepper"><button><svg class="ic"><use href="#i-minus"/></svg></button><span class="val">8</span><button><svg class="ic"><use href="#i-plus"/></svg></button></div>
+                </div>
+              </div>
+              <div class="field"><span class="lbl">Reps in reserve</span>
+                <div class="seg"><span>0</span><span>1</span><span class="on">2</span><span>3</span><span>4</span></div>
+              </div>
+              <div class="linkbtn"><svg class="ic" width="16" height="16"><use href="#i-plus"/></svg> Add set</div>
+              <div class="logged"><span class="n" style="color:var(--ink3);font-size:12px">1</span>42.5&nbsp;×&nbsp;8 &nbsp;·&nbsp; RIR 2<span class="prtag">▲ Heaviest ever</span></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab on"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PLATE 2 — exercise detail ============ -->
+  <section class="plate">
+    <div class="cap">
+      <h2>2 · Exercise detail — PRs, form photo, the trend</h2>
+      <p>Reference image from the free-exercise-db set (public domain), matched by name — anything that doesn't match cleanly gets flagged for you to pin manually. PRs read as amber. The chart is your top-set estimated 1RM over the block, endpoint emphasised.</p>
+    </div>
+    <div class="frames">
+      <div class="frame dark">
+        <div class="screen">
+          <div class="statusbar"><span>16:41</span></div>
+          <div class="navbar"><span class="lead"><svg class="ic" width="18" height="18"><use href="#i-chev"/></svg>Back</span>Exercise<span class="trail"><svg class="ic" width="19" height="19"><use href="#i-edit"/></svg></span></div>
+          <div class="content pad-lt">
+            <div class="largetitle">Incline DB Press<span class="sub">Chest · dumbbell · matched to free-exercise-db</span></div>
+            <div class="refphoto"><svg class="ic"><use href="#i-dumbbell"/></svg><small>Reference photo</small></div>
+            <div class="card tintP">
+              <span class="eyebrow" style="color:var(--pr)">Personal records</span>
+              <div class="prbadge"><svg class="ic"><use href="#i-trophy"/></svg><b>42.5&nbsp;kg</b>&nbsp;<span>heaviest — today</span></div>
+              <div class="prbadge"><svg class="ic"><use href="#i-trophy"/></svg><b>53.8</b>&nbsp;<span>best est. 1RM — today</span></div>
+              <div class="prbadge"><svg class="ic"><use href="#i-trophy"/></svg><b>9 reps</b>&nbsp;<span>most at 40&nbsp;kg — 11 Aug</span></div>
+            </div>
+            <div class="card">
+              <span class="eyebrow">Top-set est. 1RM · 8 weeks</span>
+              <svg class="spark" viewBox="0 0 280 110" preserveAspectRatio="none">
+                <line class="gridln" x1="14" y1="20" x2="266" y2="20"/>
+                <line class="gridln" x1="14" y1="55" x2="266" y2="55"/>
+                <line class="gridln" x1="14" y1="90" x2="266" y2="90"/>
+                <path class="area" d="M20 82.9 54 77.1 89 63.4 123 68 157 54.3 191 42.9 226 38.3 260 22.3 260 96 20 96 Z"/>
+                <polyline class="trend" points="20,82.9 54,77.1 89,63.4 123,68 157,54.3 191,42.9 226,38.3 260,22.3"/>
+                <circle class="dot" cx="260" cy="22.3" r="4.2"/>
+              </svg>
+            </div>
+            <div class="card">
+              <div class="setrow"><span class="n">P3W2</span>25 Aug<span class="rir" style="color:var(--ink2)">3 × 40 · top e1RM 50.7</span></div>
+              <div class="hr"></div>
+              <div class="setrow"><span class="n">P3W1</span>18 Aug<span class="rir" style="color:var(--ink2)">3 × 40 · top e1RM 50.7</span></div>
+              <div class="hr"></div>
+              <div class="setrow"><span class="n">P2W6</span>11 Aug<span class="rir" style="color:var(--ink2)">3 × 37.5 · top e1RM 48.8</span></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab on"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ PLATE 3 folded in — history (light) ============ -->
+      <div class="frame light">
+        <div class="screen">
+          <div class="statusbar"><span>19:04</span></div>
+          <div class="navbar">History<span class="trail">All ▾</span></div>
+          <div class="content pad-lt">
+            <div class="largetitle">History</div>
+            <div class="card">
+              <span class="eyebrow">Week 2 · sets per muscle group</span>
+              <div class="vol">
+                <div class="vbar">Legs<span class="track"><span class="fill" style="width:100%"></span></span><b>18</b></div>
+                <div class="vbar">Back<span class="track"><span class="fill" style="width:89%"></span></span><b>16</b></div>
+                <div class="vbar">Chest<span class="track"><span class="fill" style="width:78%"></span></span><b>14</b></div>
+                <div class="vbar">Shldrs<span class="track"><span class="fill" style="width:50%"></span></span><b>9</b></div>
+                <div class="vbar">Arms<span class="track"><span class="fill" style="width:44%"></span></span><b>8</b></div>
+                <div class="vbar">Core<span class="track"><span class="fill" style="width:33%"></span></span><b>6</b></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="rowb"><b style="font-size:14px">28 Aug · Push</b><span class="chip m">4 ex · 13 sets</span></div>
+              <div class="muscle"><span class="chip m">Chest</span><span class="chip m">Shoulders</span><span class="chip m">Arms</span></div>
+              <div class="setrow" style="font-size:13px"><span style="color:var(--pr)">▲</span>&nbsp;New PR — Incline DB Press 42.5&nbsp;kg</div>
+            </div>
+            <div class="card">
+              <div class="rowb"><b style="font-size:14px">26 Aug · Legs</b><span class="chip m">5 ex · 18 sets</span></div>
+              <div class="muscle"><span class="chip m">Legs</span><span class="chip m">Core</span></div>
+            </div>
+            <div class="phasediv">Phase 3 begins · 18 Aug</div>
+            <div class="card">
+              <div class="rowb"><b style="font-size:14px">16 Aug · Pull</b><span class="chip m">4 ex · 14 sets</span></div>
+              <div class="muscle"><span class="chip m">Back</span><span class="chip m">Arms</span></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab on"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PLATE 4 — body + food ============ -->
+  <section class="plate">
+    <div class="cap">
+      <h2>3 · Body weight → "eat more" only when the trend earns it</h2>
+      <p>Scatter of daily weigh-ins with a fitted trend line. The status line stays green while you're inside the 0.2–0.3&nbsp;kg/week band; it turns amber with a specific portion change when you're not — and it says nothing until it has a few weeks to fit.</p>
+    </div>
+    <div class="frames">
+      <div class="frame dark">
+        <div class="screen">
+          <div class="statusbar"><span>07:12</span></div>
+          <div class="navbar">Body weight<span class="trail"><svg class="ic" width="19" height="19"><use href="#i-plus"/></svg></span></div>
+          <div class="content pad-lt">
+            <div class="largetitle">Body weight</div>
+            <div class="card">
+              <div class="rowb" style="align-items:flex-end">
+                <span class="bignum">83.4<span style="font-size:15px;font-weight:600;color:var(--ink3)"> kg</span></span>
+                <span class="delta"><svg class="ic"><use href="#i-up"/></svg>0.24 kg / wk</span>
+              </div>
+              <svg class="spark" viewBox="0 0 280 110" preserveAspectRatio="none">
+                <line class="gridln" x1="14" y1="24" x2="266" y2="24"/>
+                <line class="gridln" x1="14" y1="60" x2="266" y2="60"/>
+                <line class="gridln" x1="14" y1="96" x2="266" y2="96"/>
+                <line class="trend" x1="20" y1="88" x2="260" y2="33"/>
+                <circle class="scatter" cx="20" cy="87.7" r="3"/>
+                <circle class="scatter" cx="54" cy="81.5" r="3"/>
+                <circle class="scatter" cx="89" cy="75.4" r="3"/>
+                <circle class="scatter" cx="123" cy="78.5" r="3"/>
+                <circle class="scatter" cx="157" cy="63.1" r="3"/>
+                <circle class="scatter" cx="191" cy="53.8" r="3"/>
+                <circle class="scatter" cx="226" cy="44.6" r="3"/>
+                <circle class="dot" cx="260" cy="32.3" r="4.2"/>
+              </svg>
+            </div>
+            <div class="ok"><svg class="ic"><use href="#i-check"/></svg><span><b style="color:var(--accent)">On target.</b> Gaining 0.24&nbsp;kg/wk over the last 6 weeks — inside your 0.2–0.3 band. Hold portions.</span></div>
+            <div class="card" style="gap:6px">
+              <span class="eyebrow">If it slips</span>
+              <span style="font-size:12.5px;color:var(--ink2);line-height:1.45">Below band 2 wks running → "Add ½ scoop oats to meals 2 &amp; 4, +50&nbsp;g rice at dinner." Above 0.4&nbsp;kg/wk → the reverse. Oats and rice only.</span>
+            </div>
+            <div class="linkbtn"><svg class="ic" width="16" height="16"><use href="#i-plus"/></svg> Log today's weight</div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab on"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="frame light">
+        <div class="screen">
+          <div class="statusbar"><span>15:44</span></div>
+          <div class="navbar">Today<span class="trail">4 / 6</span></div>
+          <div class="content pad-lt">
+            <div class="largetitle">Today<span class="sub">Mon 1 Sep · 4 of 6 done · ~2,290 kcal in</span></div>
+            <div class="card" style="gap:2px">
+              <div class="meal done"><span class="box"><svg class="ic"><use href="#i-check"/></svg></span><span class="txt"><span class="t">~6:30</span><span class="d">Oats, berries, 2 tbsp PB, honey, 1 scoop whey</span></span></div>
+              <div class="meal done"><span class="box"><svg class="ic"><use href="#i-check"/></svg></span><span class="txt"><span class="t">~9:00</span><span class="d">220 g yoghurt, 2 scoops oats, milk, 1 pear</span></span></div>
+              <div class="meal done"><span class="box"><svg class="ic"><use href="#i-check"/></svg></span><span class="txt"><span class="t">Lunch</span><span class="d">~150 g chicken, ~325 g cooked rice</span></span></div>
+              <div class="meal done"><span class="box"><svg class="ic"><use href="#i-check"/></svg></span><span class="txt"><span class="t">~3:35</span><span class="d">220 g yoghurt, 2 scoops oats, milk, 1 pear</span></span></div>
+              <div class="meal next"><span class="box"></span><span class="txt"><span class="t">Post-workout · in the sauna</span><span class="d">1.5 scoops whey, creatine, water</span></span></div>
+              <div class="meal"><span class="box"></span><span class="txt"><span class="t">~7:00</span><span class="d">~150 g chicken, ~325 g cooked rice</span></span></div>
+            </div>
+            <div class="card">
+              <div class="rowb"><span class="eyebrow">This week</span><b style="font-size:13px">88% adherence</b></div>
+              <div class="week">
+                <div class="d"><span class="col" style="height:100%"></span><span class="lab">M</span></div>
+                <div class="d"><span class="col" style="height:83%"></span><span class="lab">T</span></div>
+                <div class="d"><span class="col" style="height:100%"></span><span class="lab">W</span></div>
+                <div class="d"><span class="col" style="height:67%"></span><span class="lab">T</span></div>
+                <div class="d"><span class="col" style="height:100%"></span><span class="lab">F</span></div>
+                <div class="d"><span class="col" style="height:83%"></span><span class="lab">S</span></div>
+                <div class="d"><span class="col" style="height:67%;opacity:.4"></span><span class="lab">S</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab on"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PLATE 5 — recovery ============ -->
+  <section class="plate">
+    <div class="cap">
+      <h2>4 · Recovery — measured against your baseline, not a chart norm</h2>
+      <p>Three numbers, entered in about ten seconds from Health (a Shortcut automates the pull at stage 8). Each is compared to your own rolling 30-day baseline. When enough of them are low, the same banner appears at the top of the Log screen and the overload line softens — a nudge, and you still decide.</p>
+    </div>
+    <div class="frames">
+      <div class="frame dark">
+        <div class="screen">
+          <div class="statusbar"><span>16:33</span></div>
+          <div class="navbar">Recovery<span class="trail"><svg class="ic" width="19" height="19"><use href="#i-edit"/></svg></span></div>
+          <div class="content pad-lt">
+            <div class="largetitle">Recovery<span class="sub">Today vs your 30-day baseline</span></div>
+            <div class="banner"><svg class="ic"><use href="#i-warn"/></svg><span><b>Under-recovered.</b> HRV 22% below baseline, sleep 5h 40m. Today's Log suggestions drop to "match last week, leave 2 in reserve" — override any time.</span></div>
+            <div class="card">
+              <span class="eyebrow">From Health · tap to edit</span>
+              <div class="steprow">
+                <div class="field"><span class="lbl">HRV</span><div class="stepper" style="justify-content:center"><span class="val">38<small> ms</small></span></div></div>
+                <div class="field"><span class="lbl">Rest HR</span><div class="stepper" style="justify-content:center"><span class="val">54<small> bpm</small></span></div></div>
+              </div>
+              <div class="field"><span class="lbl">Sleep</span><div class="stepper" style="justify-content:center"><span class="val">5:40<small> hrs</small></span></div></div>
+            </div>
+            <div class="card">
+              <span class="eyebrow">Baseline comparison</span>
+              <div class="baseline">
+                <div class="bl low"><span class="name">HRV</span><span class="track"><span class="base" style="left:70%"></span><span class="cur" style="left:calc(45% - 5px)"></span></span><span class="v">38 · base 49</span></div>
+                <div class="bl hi"><span class="name">Rest HR</span><span class="track"><span class="base" style="left:50%"></span><span class="cur" style="left:calc(62% - 5px)"></span></span><span class="v">54 · base 51</span></div>
+                <div class="bl low"><span class="name">Sleep</span><span class="track"><span class="base" style="left:75%"></span><span class="cur" style="left:calc(48% - 5px)"></span></span><span class="v">5:40 · base 7:10</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab on"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="frame light">
+        <div class="screen">
+          <div class="statusbar"><span>16:33</span></div>
+          <div class="navbar"><span class="lead"><svg class="ic" width="18" height="18"><use href="#i-chev"/></svg>Back</span>Bench Press<span class="trail">Done</span></div>
+          <div class="content">
+            <div class="banner"><svg class="ic"><use href="#i-warn"/></svg><span><b>Eased off today.</b> Your recovery is low — this suggestion is softened.</span></div>
+            <div class="card hero">
+              <div class="rowb"><span class="eyebrow">Last time · 22 Aug</span><span class="eyebrow">RIR</span></div>
+              <div class="setrow"><span class="n">1</span>100 kg&nbsp;×&nbsp;5<span class="rir">2</span></div>
+              <div class="setrow"><span class="n">2</span>100 kg&nbsp;×&nbsp;5<span class="rir">1</span></div>
+              <div class="setrow"><span class="n">3</span>100 kg&nbsp;×&nbsp;4<span class="rir">0</span></div>
+              <div class="hr"></div>
+              <div class="target" style="color:var(--ink2)"><svg class="ic" style="color:var(--warn)"><use href="#i-pulse"/></svg><span>Match 100&nbsp;kg&nbsp;×&nbsp;5. Stop with 2 in reserve — don't chase a PR today.</span></div>
+            </div>
+            <div class="card">
+              <span class="eyebrow">Today · Set 1</span>
+              <div class="steprow">
+                <div class="field"><span class="lbl">Weight</span><div class="stepper"><button><svg class="ic"><use href="#i-minus"/></svg></button><span class="val">100<small> kg</small></span><button><svg class="ic"><use href="#i-plus"/></svg></button></div></div>
+                <div class="field"><span class="lbl">Reps</span><div class="stepper"><button><svg class="ic"><use href="#i-minus"/></svg></button><span class="val">5</span><button><svg class="ic"><use href="#i-plus"/></svg></button></div></div>
+              </div>
+              <div class="field"><span class="lbl">Reps in reserve</span><div class="seg"><span>0</span><span>1</span><span>2</span><span class="on">3</span><span>4</span></div></div>
+              <div class="linkbtn"><svg class="ic" width="16" height="16"><use href="#i-plus"/></svg> Add set</div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab on"><svg class="ic"><use href="#i-dumbbell"/></svg>Log</div>
+            <div class="tab"><svg class="ic"><use href="#i-cal"/></svg>History</div>
+            <div class="tab"><svg class="ic"><use href="#i-scale"/></svg>Body</div>
+            <div class="tab"><svg class="ic"><use href="#i-fork"/></svg>Food</div>
+            <div class="tab"><svg class="ic"><use href="#i-more"/></svg>More</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="close">
+    <h2>What this deliberately isn't</h2>
+    <ul>
+      <li>No purple/indigo, no gradient buttons, no glow, no glassmorphism on content — glass is only the tab bar and nav bar.</li>
+      <li>No downloaded webfont. System stack renders as SF on your iPhone and Mac, nothing to license or embed.</li>
+      <li>No SF Symbols — a single custom stroke icon set at one weight.</li>
+      <li>Three colours with one job each. Everything else is ink on a near-white or true-black ground.</li>
+      <li>True black in dark mode — reads right on the iPhone OLED, saves battery in the sauna.</li>
+    </ul>
+    <h2>Tell me before I build stage 1</h2>
+    <ul>
+      <li>Green — is this saturation right, or push it deeper / more olive?</li>
+      <li>Dark mode on true black, or a dark grey ground like Fitness uses?</li>
+      <li>Set entry: steppers + RIR segments as shown, or do you want a bare number pad?</li>
+      <li>Is "Beat Last Time" a good name for the app itself, or keep it plain?</li>
+      <li>Any screen missing, or anything here too busy for mid-set use?</li>
+    </ul>
+    <p>Once you're happy, stage 1 is logging + local storage: create a session, add exercises, weight × reps × RIR per set, saved to the phone and still there after a reload.</p>
+  </footer>
+</div>
