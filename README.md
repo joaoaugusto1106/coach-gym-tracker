@@ -18,7 +18,8 @@ Opening `index.html` from disk (`file://`) will **not** work — the scripts loa
 files, and service workers need http.
 
 Tests: open <http://localhost:8123/tests/> — it runs every suite and prints one total.
-Individual suites: `model`, `migration`, `rotation`, `review`, `nutrition`, `recovery`, `sw`.
+Individual suites: `model`, `migration`, `rotation`, `review`, `nutrition`, `recovery`,
+`health`, `sw`.
 
 Icons are generated, not hand-drawn — `python3 tools/make-icons.py` rebuilds `assets/`.
 
@@ -54,7 +55,9 @@ read, write or clear. Clearing the cache re-downloads the app; it never loses a 
 | `js/util.js` | `uid`, UTC timestamps, and Perth calendar dates |
 | `js/data.js` | **Seed content** — exercise catalog, movement families, program version `pv1`. Affects a fresh install or "Reset all data" only |
 | `js/store.js` | Persistence, schema migrations, validation, backups, import/export |
-| `js/model.js` | Pure logic — Epley, phase/week, rotation, recall, PR detection, progression |
+| `js/model.js` | Pure logic — Epley, phase/week, rotation, recall, PR detection, progression, recovery |
+| `js/health.js` | Apple Health bridge — builds the workout summary and the `shortcuts://` URL |
+| `shortcuts/` | Build-it-yourself instructions for the companion Shortcut |
 | `js/ui.js` | DOM helpers, icon set, bottom sheet, toast |
 | `js/views.js` | Every screen |
 | `js/app.js` | Boot, hash router, tab bar, save-health banner, service-worker registration and the update bar |
@@ -263,6 +266,35 @@ red day it says the target is unchanged and the decision is yours.
 Each session freezes the readiness it was trained under, so a later baseline shift can't
 rewrite what the app was told on the day.
 
+## Apple Health
+
+A web app cannot talk to HealthKit. The only route that needs no server, no account and no
+API key is a companion Shortcut, handed a summary over the documented `shortcuts://` URL
+scheme. **Build it once**: see [`shortcuts/log-strength-workout.md`](shortcuts/log-strength-workout.md).
+
+Finish a session → **Save to Apple Health**. You get a sheet showing what will be sent, with
+the duration worked out from your own start and finish times and editable before you send
+(a draft left open overnight is clamped, not written as a 14-hour workout).
+
+**What crosses the bridge is a summary**: workout type, start, end, duration, and a few
+counts for the notification. Your sets, weights, RIR, notes and body weight never leave the
+app — there are tests asserting the payload contains none of them.
+
+**It never claims a result it can't see.** The app hands off to Shortcuts and has no way to
+observe what happened next, so it asks: *"Did it save?"* — Yes marks it, No opens
+troubleshooting with the exact JSON to paste in by hand. A session is only ever marked as
+saved because you said so.
+
+More → Apple Health has the Shortcut name (it must match exactly) and **Test the bridge**,
+which sends a clearly-labelled 1-minute workout so you can prove the whole path end to end
+without polluting your log.
+
+### Not verified
+
+Whether Shortcuts-logged workouts count toward **Activity rings** or show in **Fitness** and
+on the **Watch** has not been tested. That depends on how iOS treats them on your setup. Log
+one, look, and tell me — then this section gets the answer instead of a guess.
+
 ## Devices
 
 Installing on two devices does **not** sync them — each browser has its own dataset. Real
@@ -293,6 +325,7 @@ you log here stays on this device — it won't reach it."*
    weekly adherence, weigh-in log, rolling trend, and conservative portion advice
 6. ✅ Recovery — manual check-in, personal median/MAD baselines, green/amber/red
    readiness, and a today-adjustment that never overwrites the base target
-7. Apple Health write bridge (Shortcut)
+7. ✅ Apple Health write bridge — Shortcut hand-off, duration control, honest
+   confirmation, bridge test, troubleshooting (needs on-device verification)
 8. Apple Health read experiment
 9. Refinement — curated exercise photos, plate maths, accessibility, final polish

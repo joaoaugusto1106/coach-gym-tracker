@@ -187,6 +187,7 @@ button.chip{cursor:pointer}
 .pr-tag{margin-left:auto; font-size:9.5px; font-weight:800; letter-spacing:.04em;
   padding:2px 6px; border-radius:6px; background:var(--prSoft); color:var(--pr); white-space:nowrap}
 .chip.pr{background:var(--prSoft); color:var(--pr)}
+.chip.health{background:var(--accentSoft); color:var(--accent)}
 
 .pr-line{display:flex; gap:10px; align-items:flex-start; padding:4px 0}
 .pr-line .ic{color:var(--prDot); flex:none; margin-top:1px}

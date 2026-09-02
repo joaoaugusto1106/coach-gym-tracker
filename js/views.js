@@ -327,8 +327,117 @@ window.App = window.App || {};
         ])
       ]));
     });
+    if (M.workingSets((session.entries || []).reduce(function (a, e) { return a.concat(e.sets); }, [])).length) {
+      sh.body.appendChild(el("button", { class: "btn ghost", type: "button", onclick: function () {
+        sh.close(); healthSheet(st, session);
+      } }, [icon("heart", 16), " Save to Apple Health"]));
+    }
     sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () { sh.close(); location.hash = "#/history"; } }, ["Done"]));
     sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () { sh.close(); undoLastFinish(); } }, ["Undo finish"]));
+    sh.open();
+  }
+
+  // ==================================================================
+  // Apple Health — write bridge
+  // ==================================================================
+  function healthSheet(st, session) {
+    var H = App.health;
+    var name = st.settings.healthWriteShortcutName || "Log Strength Workout";
+    var mins = session.healthDurationMin || H.suggestedMinutes(session);
+    var counts = H.workingSetsOf(session);
+    var sh = App.ui.sheet("Save to Apple Health");
+
+    sh.body.appendChild(el("p", { class: "hint", text:
+      "This hands a summary — type, start, duration — to your “" + name + "” Shortcut, which writes it into Health. " +
+      "Your sets and weights stay here, the same as every other strength app." }));
+
+    sh.body.appendChild(el("div", { class: "kv" }, [
+      kvRow("Workout", "Functional Strength Training"),
+      kvRow("Date", M.humanDate(session.date) + " · " + M.timeOfDay(session.startedAt)),
+      kvRow("Logged", counts.sets + " working sets · " + Math.round(counts.volumeKg).toLocaleString() + " kg total")
+    ]));
+
+    var durInput = el("input", { class: "num", inputmode: "numeric", value: String(mins),
+      "aria-label": "duration in minutes", oninput: function (e) { mins = parseInt(e.target.value, 10); } });
+    sh.body.appendChild(el("div", { class: "lf" }, [
+      el("span", { class: "lflbl", text: "Duration (minutes)" }), stepper(durInput, 5)
+    ]));
+    sh.body.appendChild(el("p", { class: "hint", text: H.wasClamped(session)
+      ? "The app couldn't work out a sensible length from the session's timestamps, so this is a starting guess — set it to what you actually trained."
+      : "Worked out from when you started and finished. Adjust it if you left the app open, or want the sauna counted." }));
+
+    if (!H.isSupported()) {
+      sh.body.appendChild(el("div", { class: "notice" }, [
+        icon("warn", 16),
+        el("span", { text: "Shortcuts only exists on iPhone, iPad and Mac. On this device you can copy the summary, but nothing will reach Health." })
+      ]));
+    }
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var m = parseInt(mins, 10);
+      if (isNaN(m) || m < H.MIN_MINUTES || m > H.MAX_MINUTES) {
+        App.ui.toast("Duration must be between " + H.MIN_MINUTES + " and " + H.MAX_MINUTES + " minutes");
+        return;
+      }
+      session.healthDurationMin = m;
+      S.save();
+      var p = App.health.payload(st, session, m);
+      sh.close();
+      // ask AFTER the hand-off — the app can't see what Shortcuts did
+      setTimeout(function () { healthConfirmSheet(st, session, p, name); }, 700);
+      App.health.open(App.health.shortcutURL(name, p));
+    } }, [icon("heart", 16), " Open the Shortcut"]));
+
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+      var p = App.health.payload(st, session, parseInt(mins, 10) || H.suggestedMinutes(session));
+      App.health.copy(App.health.payloadText(p))
+        .then(function () { App.ui.toast("Summary copied"); })
+        ["catch"](function () { App.ui.toast("Couldn't copy — select it in More instead"); });
+    } }, ["Copy the summary instead"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Not now"]));
+    sh.open();
+  }
+
+  // The app cannot observe what Shortcuts did, so it asks rather than assuming.
+  function healthConfirmSheet(st, session, p, name) {
+    var sh = App.ui.sheet("Did it save?");
+    sh.body.appendChild(el("p", { class: "hint", text:
+      "The app hands the summary to Shortcuts and can't see what happened next — so this is the honest way to record it. " +
+      "Check Health → Browse → Activity → Workouts if you're not sure." }));
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      session.healthLogged = true;
+      session.healthLoggedAt = U.nowISO();
+      session.updatedAt = U.nowISO();
+      S.save(); sh.close(); render();
+      App.ui.toast("Marked as saved to Health");
+    } }, [icon("check", 16), " Yes, it saved"]));
+
+    sh.body.appendChild(el("button", { class: "btn ghost", type: "button", onclick: function () {
+      sh.close(); healthTroubleshootSheet(st, session, p, name);
+    } }, ["No — something went wrong"]));
+
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Ask me later"]));
+    sh.open();
+  }
+
+  function healthTroubleshootSheet(st, session, p, name) {
+    var sh = App.ui.sheet("Health bridge — what to check");
+    sh.body.appendChild(el("ol", { class: "steps" }, [
+      el("li", { text: "Is there a Shortcut called exactly “" + name + "”? The name must match, including capitals. Change it in More → Apple Health if yours is called something else." }),
+      el("li", { text: "Open the Shortcut and run it once by hand. The first run is where iOS asks for permission to write to Health — that prompt can't appear while it's being launched from another app." }),
+      el("li", { text: "In Health → Sharing → Apps → Shortcuts, make sure Workouts is allowed to write." }),
+      el("li", { text: "If the Shortcut opened but errored, tap Copy the summary below and paste it into the Shortcut by hand to see which step fails." })
+    ]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+      App.health.copy(App.health.payloadText(p))
+        .then(function () { App.ui.toast("Summary copied"); })
+        ["catch"](function () { App.ui.toast("Couldn't copy on this device"); });
+    } }, ["Copy the summary"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+      sh.close(); healthSheet(st, session);
+    } }, ["Try again"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Close"]));
     sh.open();
   }
 
@@ -390,7 +499,7 @@ window.App = window.App || {};
     nodes.push(el("div", { class: "finishbar" }, [
       el("button", { class: "btn primary", type: "button", onclick: function () { openFinishFlow(st, as); } }, ["Finish & save"]),
       el("button", { class: "btn ghost sm", type: "button", onclick: function () { abandonActive(st); } }, ["Abandon draft"]),
-      el("p", { class: "hint", text: "Autosaves after every set. “Save to Apple Health” arrives in Stage 7." })
+      el("p", { class: "hint", text: "Autosaves after every set. You can send the finished session to Apple Health when you save it." })
     ]));
 
     return screen({ title: as.dayName, lead: { label: "Today", onClick: function () { location.hash = "#/today"; } } }, nodes);
@@ -804,7 +913,8 @@ window.App = window.App || {};
           el("span", { class: "chip m", text: "Phase " + s.phase + " · Wk " + s.week }),
           s.status !== "completed" ? el("span", { class: "chip status-" + s.status, text: s.status }) : null,
           s.startMode === "manual" ? el("span", { class: "chip m", text: "manual" }) : null,
-          prCount ? el("span", { class: "chip pr", text: "▲ " + prCount + " PR" }) : null
+          prCount ? el("span", { class: "chip pr", text: "▲ " + prCount + " PR" }) : null,
+          s.healthLogged ? el("span", { class: "chip health", text: "♥ Health" }) : null
         ])
       ]));
     });
@@ -1092,6 +1202,23 @@ window.App = window.App || {};
     ])];
     if (s.editedAt) nodes.push(el("p", { class: "hint", text: "Edited " + M.stampText(s.editedAt) }));
 
+    if (M.countsForHistory(s)) {
+      var logged = M.workingSets(s.entries.reduce(function (a, e) { return a.concat(e.sets); }, [])).length;
+      if (logged) {
+        nodes.push(s.healthLogged
+          ? el("div", { class: "notice ok" }, [
+              icon("check", 16),
+              el("span", { text: "Saved to Apple Health" + (s.healthLoggedAt ? " · " + M.stampText(s.healthLoggedAt) : "") }),
+              el("button", { class: "linkbtn", type: "button", onclick: function () {
+                s.healthLogged = false; s.healthLoggedAt = null; S.save(); render();
+              } }, ["Undo"])
+            ])
+          : el("button", { class: "btn ghost sm", type: "button",
+              onclick: function () { healthSheet(st, s); } },
+              [icon("heart", 16), " Save to Apple Health"]));
+      }
+    }
+
     var shown = editing ? s.entries : s.entries.filter(function (e) { return e.sets.length; });
     if (!shown.length) nodes.push(el("div", { class: "card empty" }, [el("p", { text: "No sets were logged in this session." })]));
 
@@ -1223,6 +1350,26 @@ window.App = window.App || {};
       } }, ["Reset all data"])
     ]));
 
+    // ---- Apple Health ----------------------------------------------
+    var loggedCount = st.sessions.filter(function (x) { return x.healthLogged; }).length;
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Apple Health" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Write Shortcut" }),
+        el("b", { text: set.healthWriteShortcutName })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Sessions marked saved" }),
+        el("b", { text: String(loggedCount) })
+      ]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt("Name of the Shortcut that writes workouts to Health. It must match exactly, including capitals.", set.healthWriteShortcutName);
+        if (v != null && v.trim()) { set.healthWriteShortcutName = v.trim(); S.save(); render(); }
+      } }, ["Change the Shortcut name"]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () { healthTestSheet(st); } }, ["Test the bridge"]),
+      el("p", { class: "hint", text: "Health gets a summary — type, start, duration. Your sets and weights stay in this app. Building the Shortcut is a one-off: see shortcuts/log-strength-workout.md in the project." })
+    ]));
+
     // ---- install / offline -----------------------------------------
     var env = App.env;
     var installed = env.isStandalone();
@@ -1264,9 +1411,54 @@ window.App = window.App || {};
       el("button", { class: "btn ghost sm", type: "button", onclick: moveToPhoneGuide }, ["Move my data to another device"])
     ]));
 
-    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 6 · schema v" + st.schemaVersion +
+    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 7 · schema v" + st.schemaVersion +
       " · app " + S.appVersion + (env.swState.version ? " · offline " + env.swState.version : "") }));
     return screen({ title: "More" }, nodes, "More");
+  }
+
+  // Sends a clearly-marked 1-minute test workout, so the bridge can be proved
+  // without polluting the log with a fake session.
+  function healthTestSheet(st) {
+    var H = App.health;
+    var name = st.settings.healthWriteShortcutName || "Log Strength Workout";
+    var now = new Date();
+    var fake = {
+      id: "health-test", dayName: "Coach bridge test", date: U.perthDateISO(),
+      startedAt: new Date(now.getTime() - 60000).toISOString(), endedAt: now.toISOString(),
+      entries: []
+    };
+    var p = H.payload(st, fake, 1);
+    var sh = App.ui.sheet("Test the Health bridge");
+    sh.body.appendChild(el("p", { class: "hint", text:
+      "This sends a 1-minute workout dated now, so you can prove the Shortcut works end to end. " +
+      "It will appear in Health as a 1-minute Functional Strength Training entry — delete it there afterwards." }));
+    sh.body.appendChild(el("div", { class: "kv" }, [
+      kvRow("Shortcut", name),
+      kvRow("Sends", "1 minute, Functional Strength Training")
+    ]));
+    if (!H.isSupported()) {
+      sh.body.appendChild(el("div", { class: "notice" }, [
+        icon("warn", 16),
+        el("span", { text: "Shortcuts only exists on Apple devices — this will do nothing here. Run it on your iPhone." })
+      ]));
+    }
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      sh.close();
+      setTimeout(function () {
+        var s2 = App.ui.sheet("Did the test work?");
+        s2.body.appendChild(el("p", { class: "hint", text: "Check Health → Browse → Activity → Workouts for a 1-minute entry dated just now." }));
+        s2.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+          s2.close(); App.ui.toast("Bridge works — remember to delete the test entry in Health");
+        } }, ["Yes, it's there"]));
+        s2.body.appendChild(el("button", { class: "btn ghost", type: "button", onclick: function () {
+          s2.close(); healthTroubleshootSheet(st, fake, p, name);
+        } }, ["No — show me what to check"]));
+        s2.open();
+      }, 700);
+      H.open(H.shortcutURL(name, p));
+    } }, [icon("heart", 16), " Send a test workout"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Cancel"]));
+    sh.open();
   }
 
   function installGuide() {

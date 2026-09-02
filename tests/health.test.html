@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach — Health bridge tests</title>
+<style>
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:880px}
+  h1{font-size:18px}
+  .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
+  .row{padding:3px 0; border-bottom:1px solid #eee}
+  #summary{margin:14px 0; font-weight:700; font-size:15px}
+  .note{background:#f6f6f4; padding:10px 12px; border-radius:8px; font-size:13px; margin:12px 0}
+</style>
+</head>
+<body>
+<h1>Coach — Apple Health write bridge (Stage 7)</h1>
+<p class="note">Tests the payload, the URL hand-off, and the guards around them.
+It cannot test Shortcuts or HealthKit — those live outside the browser. Verify
+those on the iPhone; see <code>shortcuts/log-strength-workout.md</code>.</p>
+<div id="summary">running…</div>
+<div id="out"></div>
+
+<script src="../js/util.js"></script>
+<script src="../js/data.js"></script>
+<script src="../js/model.js"></script>
+<script src="../js/health.js"></script>
+<script>
+(function () {
+  var H = App.health, M = App.model, out = document.getElementById("out"), pass = 0, fail = 0;
+  function ok(name, cond) {
+    var d = document.createElement("div");
+    d.className = "row " + (cond ? "ok" : "fail");
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d); cond ? pass++ : fail++;
+  }
+  function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
+
+  function S(w, r, type) {
+    return { id: "s", order: 0, type: type || "working", weightKg: w, reps: r, rir: 2,
+      e1rm: M.epley(w, r), prFlags: [] };
+  }
+  function session(startedAt, endedAt, entries) {
+    return { id: "sess-1", dayName: "Upper · Push", date: "2026-09-02",
+      startedAt: startedAt, endedAt: endedAt, status: "completed", entries: entries || [] };
+  }
+  var st = { settings: { healthWriteShortcutName: "Log Strength Workout" }, sessions: [], exercises: App.EXERCISE_SEED };
+
+  // ---- duration ----
+  eq("duration comes from the session's own timestamps",
+    H.suggestedMinutes(session("2026-09-02T08:30:00Z", "2026-09-02T09:22:00Z")), 52);
+  eq("a draft left open overnight is clamped, not written as 14 hours",
+    H.suggestedMinutes(session("2026-09-02T08:00:00Z", "2026-09-03T02:00:00Z")), H.MAX_MINUTES);
+  eq("an implausibly short session is floored",
+    H.suggestedMinutes(session("2026-09-02T08:00:00Z", "2026-09-02T08:00:30Z")), H.MIN_MINUTES);
+  eq("missing timestamps fall back to something sane",
+    H.suggestedMinutes(session("2026-09-02T08:00:00Z", null)), 60);
+  eq("clamping is reported so the UI can say so",
+    [H.wasClamped(session("2026-09-02T08:00:00Z", "2026-09-03T02:00:00Z")),
+     H.wasClamped(session("2026-09-02T08:30:00Z", "2026-09-02T09:22:00Z"))], [true, false]);
+
+  // ---- what gets counted ----
+  var withSets = session("2026-09-02T08:30:00Z", "2026-09-02T09:22:00Z", [
+    { sets: [S(60, 5, "warmup"), S(100, 8), S(100, 8)] },
+    { sets: [S(40, 10), S(20, 15, "drop")] }
+  ]);
+  eq("only working sets are counted", H.workingSetsOf(withSets).sets, 3);
+  eq("volume is weight x reps over working sets only", H.workingSetsOf(withSets).volumeKg, 100 * 8 + 100 * 8 + 40 * 10);
+  eq("an empty session counts nothing", H.workingSetsOf(session("a", "b", [])), { sets: 0, volumeKg: 0 });
+
+  // ---- payload ----
+  var p = H.payload(st, withSets, 52);
+  eq("payload is versioned", p.v, 1);
+  eq("workout type is Functional Strength Training", p.type, "Functional Strength Training");
+  eq("start is the session start", p.start, "2026-09-02T08:30:00Z");
+  eq("duration is carried explicitly", p.durationMin, 52);
+  ok("end is derived from the duration you confirmed, not the raw timestamp",
+    new Date(p.end) - new Date(p.start) === 52 * 60000);
+  eq("exercises counts only those with sets logged", p.exercises, 2);
+  eq("the session id travels so it can be traced", p.sessionId, "sess-1");
+
+  // the privacy guarantee: a summary, never the training detail
+  var text = H.payloadText(p);
+  ok("payload never contains per-set weights", text.indexOf('"weightKg"') < 0);
+  ok("payload never contains reps", text.indexOf('"reps"') < 0);
+  ok("payload never contains RIR", text.toLowerCase().indexOf('"rir"') < 0);
+  ok("payload never contains notes", text.indexOf('"note"') < 0);
+  ok("payload never contains body weight", text.indexOf('"bodyweight"') < 0 && text.indexOf('"kg"') < 0);
+  ok("payload stays small enough for a URL", text.length < 400);
+
+  // a shorter duration must move the end, not just the label
+  var pShort = H.payload(st, withSets, 30);
+  ok("changing the duration changes what Health will record",
+    new Date(pShort.end) - new Date(pShort.start) === 30 * 60000);
+
+  // ---- URL ----
+  var url = H.shortcutURL("Log Strength Workout", p);
+  ok("uses the documented shortcuts:// scheme", url.indexOf("shortcuts://run-shortcut?") === 0);
+  ok("passes the name", url.indexOf("name=Log%20Strength%20Workout") > -1);
+  ok("declares text input", url.indexOf("input=text") > -1);
+  ok("the payload is URL-encoded", url.indexOf("text=%7B%22v%22%3A1") > -1);
+  ok("no raw braces or quotes leak into the URL",
+    url.indexOf("{") < 0 && url.indexOf('"') < 0 && url.indexOf(" ") < 0);
+  ok("a name with spaces and punctuation survives encoding", (function () {
+    var u = H.shortcutURL("João's Log & Save", p);
+    return u.indexOf("Jo%C3%A3o's%20Log%20%26%20Save") > -1 || u.indexOf("Jo%C3%A3o%27s%20Log%20%26%20Save") > -1;
+  })());
+  eq("a missing name falls back to the documented default",
+    H.shortcutURL(null, p).indexOf("name=Log%20Strength%20Workout") > -1, true);
+  ok("decoding the URL gives back exactly the payload", (function () {
+    var enc = url.split("&text=")[1];
+    return JSON.stringify(JSON.parse(decodeURIComponent(enc))) === JSON.stringify(p);
+  })());
+
+  // ---- round trip through what the Shortcut will actually read ----
+  ok("the Shortcut can recover start, end and type from the JSON", (function () {
+    var got = JSON.parse(decodeURIComponent(url.split("&text=")[1]));
+    return got.start === p.start && got.end === p.end && got.type === "Functional Strength Training" &&
+      !isNaN(new Date(got.start).getTime()) && !isNaN(new Date(got.end).getTime());
+  })());
+  ok("end is always after start", new Date(p.end) > new Date(p.start));
+
+  // ---- platform guard ----
+  App.env = { isIOS: function () { return false; } };
+  eq("non-Apple devices are told the bridge can't work there", H.isSupported(), false);
+  App.env = { isIOS: function () { return true; } };
+  eq("iPhone is supported", H.isSupported(), true);
+
+  document.getElementById("summary").innerHTML =
+    (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
+})();
+</script>
+</body>
+</html>

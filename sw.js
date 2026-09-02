@@ -15,7 +15,7 @@
 
    To ship a new version, bump VERSION. Old caches are deleted on activate. */
 
-var VERSION = "v6.0.0";
+var VERSION = "v7.0.0";
 var CACHE = "coach-" + VERSION;
 
 var SHELL = [
@@ -26,6 +26,7 @@ var SHELL = [
   "./js/data.js",
   "./js/store.js",
   "./js/model.js",
+  "./js/health.js",
   "./js/ui.js",
   "./js/views.js",
   "./js/app.js",
