@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach — plate maths &amp; photos</title>
+<style>
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:880px}
+  h1{font-size:18px}
+  .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
+  .row{padding:3px 0; border-bottom:1px solid #eee}
+  #summary{margin:14px 0; font-weight:700; font-size:15px}
+</style>
+</head>
+<body>
+<h1>Coach — plate maths &amp; reference photos (Stage 9)</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+
+<script src="../js/util.js"></script>
+<script src="../js/data.js"></script>
+<script src="../js/photos.js"></script>
+<script src="../js/model.js"></script>
+<script>
+(function () {
+  var M = App.model, out = document.getElementById("out"), pass = 0, fail = 0;
+  function ok(name, cond) {
+    var d = document.createElement("div");
+    d.className = "row " + (cond ? "ok" : "fail");
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d); cond ? pass++ : fail++;
+  }
+  function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
+
+  // ---- plate maths ----
+  // greedy from the heaviest down — the fewest plates, which is what you'd
+  // actually load at the rack
+  eq("100 kg on a 20 kg bar", M.platesFor(100, 20).perSide, [25, 15]);
+  eq("just the bar", M.platesFor(20, 20).perSide, []);
+  eq("   and it says so", M.plateText(M.platesFor(20, 20).perSide), "just the bar");
+  eq("60 kg", M.platesFor(60, 20).perSide, [20]);
+  eq("62.5 kg needs the small plate", M.platesFor(62.5, 20).perSide, [20, 1.25]);
+  eq("140 kg stacks the 25s", M.platesFor(140, 20).perSide, [25, 25, 10]);
+  eq("a 15 kg women's bar", M.platesFor(55, 15).perSide, [20]);
+  eq("plate text reads like a human wrote it", M.plateText([25, 25, 10, 2.5]), "2 × 25, 1 × 10, 1 × 2.5");
+
+  eq("everything is exact when the plates allow it", M.platesFor(100, 20).exact, true);
+  var odd = M.platesFor(101, 20);
+  eq("an impossible weight is flagged, not silently rounded", odd.exact, false);
+  eq("   and it reports the closest it can actually load", odd.loadedKg, 100);
+  ok("   the leftover is named", odd.leftoverKg > 0);
+
+  var light = M.platesFor(10, 20);
+  eq("below the bar is refused", light.ok, false);
+  ok("   with a message naming the bar", /less than the bar/.test(light.message));
+  eq("no target at all is refused", M.platesFor(null, 20).ok, false);
+  eq("nonsense input is refused", M.platesFor(NaN, 20).ok, false);
+
+  // a gym with a limited plate set
+  var limited = M.platesFor(100, 20, [20, 10, 5]);
+  eq("respects the plates you actually have", limited.perSide, [20, 20]);
+  eq("   still exact when it can be", limited.exact, true);
+  var noSmall = M.platesFor(62.5, 20, [20, 10, 5]);
+  eq("says when your plates can't hit the number", noSmall.exact, false);
+  eq("   loading the closest it can", noSmall.loadedKg, 60);
+
+  ok("always uses the fewest plates it can", (function () {
+    // 40 kg a side from a full rack is 25+15, never 20+15+5
+    var r = M.platesFor(100, 20).perSide;
+    return r.length === 2;
+  })());
+  ok("totals always add up", (function () {
+    for (var t = 20; t <= 200; t += 2.5) {
+      var r = M.platesFor(t, 20);
+      if (!r.ok) return false;
+      var sum = r.perSide.reduce(function (a, p) { return a + p; }, 0);
+      if (Math.abs(20 + sum * 2 - (r.exact ? t : r.loadedKg)) > 0.001) return false;
+    }
+    return true;
+  })());
+  ok("never suggests a plate the gym doesn't have", (function () {
+    var have = [20, 10, 5];
+    for (var t = 20; t <= 200; t += 5) {
+      var r = M.platesFor(t, 20, have);
+      if (r.ok && r.perSide.some(function (p) { return have.indexOf(p) < 0; })) return false;
+    }
+    return true;
+  })());
+
+  // ---- reference photos ----
+  var photos = App.EXERCISE_PHOTOS, src = App.EXERCISE_PHOTO_SOURCE;
+  ok("the source and its licence are recorded", !!src.name && /public domain/i.test(src.licence));
+  ok("images come from the documented host", /raw\.githubusercontent\.com/.test(src.base));
+
+  // every mapping must point at a real Coach exercise
+  var known = {};
+  App.EXERCISE_SEED.forEach(function (e) { known[e.id] = 1; });
+  var strays = Object.keys(photos).filter(function (k) { return !known[k]; });
+  eq("no photo entry points at an exercise that doesn't exist", strays, []);
+
+  var mapped = Object.keys(photos).filter(function (k) { return photos[k]; });
+  ok("most exercises have a photo", mapped.length >= 50);
+  ok("every mapped entry has at least one image", mapped.every(function (k) { return photos[k].images.length > 0; }));
+  ok("every mapped entry declares its match quality",
+    mapped.every(function (k) { return photos[k].match === "exact" || photos[k].match === "close"; }));
+  ok("every mapped entry names the source exercise", mapped.every(function (k) { return !!photos[k].name; }));
+
+  eq("an unmatched exercise is null, never a wrong photo", photos["nordic-curl"], null);
+  eq("photoFor returns nothing for an unmatched exercise", M.photoFor("nordic-curl"), null);
+  eq("photoFor returns nothing for an unknown id", M.photoFor("not-a-real-exercise"), null);
+
+  var bench = M.photoFor("bb-bench");
+  ok("photoFor builds a full URL", /^https:\/\/raw\.githubusercontent\.com\/.+\.jpg$/.test(bench.urls[0]));
+  eq("   and carries the match quality through", bench.match, "exact");
+  ok("   and the licence, so it can be credited", /public domain/i.test(bench.licence));
+  eq("a close match is labelled close, not passed off as exact", M.photoFor("lat-pulldown").match, "close");
+
+  // the thing that makes fuzzy matching dangerous
+  ok("Barbell Row is not mapped to a curl", !/curl/i.test(M.photoFor("bb-row").sourceName));
+  ok("Back Squat is mapped to a squat", /squat/i.test(M.photoFor("back-squat").sourceName));
+  ok("Hanging Leg Raise is not mapped to a calf raise", !/calf/i.test(M.photoFor("hanging-leg-raise").sourceName));
+  ok("Ab Wheel is mapped to a rollout", /rollout/i.test(M.photoFor("ab-wheel").sourceName));
+
+  // every exercise in the seeded program should have something to show
+  var slotIds = {};
+  App.PROGRAM_SEED.days.forEach(function (d) {
+    d.slots.forEach(function (s) { s.allowedExerciseIds.forEach(function (id) { slotIds[id] = 1; }); });
+  });
+  var programMissing = Object.keys(slotIds).filter(function (id) { return !M.photoFor(id); });
+  eq("every exercise in the program has a photo (or is deliberately blank)",
+    programMissing.filter(function (id) { return photos[id] !== null; }), []);
+
+  document.getElementById("summary").innerHTML =
+    (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
+})();
+</script>
+</body>
+</html>

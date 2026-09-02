@@ -143,8 +143,8 @@ button.chip{cursor:pointer}
 .stepper .num::-webkit-outer-spin-button,.stepper .num::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
 .seg{display:flex; background:var(--card2); border-radius:11px; padding:3px; gap:3px}
 .seg.wide{width:100%}
-.segb{flex:1; text-align:center; font-size:13px; font-weight:650; padding:9px 0; border-radius:8px;
-  border:0; background:none; color:var(--ink2); cursor:pointer; font-family:inherit}
+.segb{flex:1; text-align:center; font-size:13px; font-weight:650; padding:11px 0; min-height:40px;
+  border-radius:8px; border:0; background:none; color:var(--ink2); cursor:pointer; font-family:inherit}
 .segb.on{background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.18)}
 
 .btn{display:flex; align-items:center; justify-content:center; gap:6px;
@@ -244,7 +244,7 @@ button.chip{cursor:pointer}
 .finish-missing-row .ic{color:var(--warn)}
 
 .seg.tiny{padding:2px}
-.seg.tiny .segb{font-size:11.5px; padding:6px 8px; font-weight:600; white-space:nowrap}
+.seg.tiny .segb{font-size:11.5px; padding:7px 10px; min-height:32px; font-weight:600; white-space:nowrap}
 
 .setlogrow.aux,.recall-row.aux{opacity:.55}
 .setlogrow.aux .n,.recall-row.aux .n{color:var(--ink3)}
@@ -253,8 +253,11 @@ button.chip{cursor:pointer}
 .chip.status-abandoned{background:var(--card2); color:var(--ink3); text-decoration:line-through}
 .chip.status-draft{background:var(--accentSoft); color:var(--accent)}
 
-.checkrow{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--ink2); padding:4px 0}
-.checkrow input{width:20px; height:20px; accent-color:var(--accent)}
+/* the checkbox is small, but the whole row is the tap target — that's what a
+   <label> wrapping an input gives you */
+.checkrow{display:flex; align-items:center; gap:11px; font-size:14px; color:var(--ink2);
+  padding:10px 2px; min-height:44px; cursor:pointer}
+.checkrow input{width:22px; height:22px; flex:none; accent-color:var(--accent)}
 
 .noteinput{width:100%; font:inherit; font-size:14px; padding:10px 12px; border-radius:10px;
   background:var(--card2); border:1px solid var(--sep); color:var(--ink)}
@@ -292,8 +295,8 @@ body.resting .content{padding-bottom:calc(158px + env(safe-area-inset-bottom))}
 
 /* ---- Stage 3: filters, weekly review, volume, progress chart ---- */
 .filterbar{display:grid; grid-template-columns:1fr 1fr; gap:8px}
-.filtersel{font:inherit; font-size:13px; font-weight:600; padding:9px 10px; border-radius:10px;
-  background:var(--card); border:1px solid var(--sep); color:var(--ink); min-width:0}
+.filtersel{font:inherit; font-size:13px; font-weight:600; padding:11px 10px; min-height:44px;
+  border-radius:10px; background:var(--card); border:1px solid var(--sep); color:var(--ink); min-width:0}
 .filterinfo{padding:0 2px}
 
 .phasediv{display:flex; align-items:center; gap:9px; margin:6px 2px; font-size:10.5px;
@@ -372,15 +375,18 @@ button.linkrow{padding:9px 0}
 .meallist{display:flex; flex-direction:column}
 .meal{display:flex; align-items:flex-start; gap:11px; padding:11px 0; border-top:1px solid var(--sep)}
 .meal:first-child{border-top:0}
-.mealbox{width:26px; height:26px; flex:none; margin-top:2px; border-radius:8px;
-  border:2px solid var(--ink3); background:none; color:#fff; cursor:pointer;
-  display:grid; place-items:center; padding:0}
-.mealbox.done{background:var(--accent); border-color:var(--accent)}
-.mealbox.partial{border-color:var(--accent)}
+/* 26px visual, 44px tap area — this is the button you hit six times a day */
+.mealbox{width:44px; height:44px; flex:none; margin:-6px 0 0 -9px; padding:0; border:0;
+  background:none; color:#fff; cursor:pointer; display:grid; place-items:center; position:relative}
+.mealbox::before{content:""; position:absolute; width:26px; height:26px; border-radius:8px;
+  border:2px solid var(--ink3); box-sizing:border-box}
+.mealbox > *{position:relative; z-index:1}
+.mealbox.done::before{background:var(--accent); border-color:var(--accent)}
+.mealbox.partial::before{border-color:var(--accent)}
 .mealbox.partial .half{width:12px; height:12px; border-radius:3px; background:var(--accent); display:block}
-.mealbox.skipped{border-color:var(--ink3); color:var(--ink3)}
-.mealbody{flex:1; min-width:0; background:none; border:0; padding:0; text-align:left;
-  color:inherit; font:inherit; cursor:pointer}
+.mealbox.skipped{color:var(--ink3)}
+.mealbody{flex:1; min-width:0; background:none; border:0; padding:4px 0; min-height:44px;
+  text-align:left; color:inherit; font:inherit; cursor:pointer}
 .mealtime{font-size:11.5px; font-weight:700; letter-spacing:.03em; color:var(--ink3);
   display:flex; align-items:center; gap:6px; flex-wrap:wrap}
 .mealdetail{font-size:13.5px; line-height:1.4; margin-top:2px}
@@ -466,9 +472,24 @@ button.linkrow{padding:9px 0}
   color:var(--ink); resize:vertical; min-height:70px}
 .importresult{display:flex; flex-direction:column; gap:7px}
 
+/* ---- Stage 9: reference photos + plate maths ---- */
+.photoblock{display:flex; flex-direction:column; gap:6px}
+.exphoto{width:100%; max-width:100%; border-radius:12px; background:var(--card2);
+  display:block; aspect-ratio:4/3; object-fit:cover}
+.photocap{display:flex; flex-direction:column; gap:1px}
+.photomatch{font-size:12px; font-weight:650; color:var(--ink2)}
+.photomatch.close{color:var(--pr)}
+.photolic{font-size:10.5px; color:var(--ink3)}
+
+.plateblock{display:flex; flex-direction:column; gap:7px}
+.plateout{display:flex; flex-direction:column; gap:5px}
+.platepills{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+.platepill{font-size:13px; font-weight:750; padding:7px 11px; border-radius:9px;
+  background:var(--accentSoft); color:var(--accent); font-variant-numeric:tabular-nums}
+
 .warn-text{color:var(--warn)}
 .sched-dot{color:var(--accent); font-size:8px; line-height:1; margin-right:5px; vertical-align:middle}
 .chip.m .sched-dot{color:var(--accent)}
-.daypick .chip{display:inline-flex; align-items:center}
+.daypick .chip{display:inline-flex; align-items:center; min-height:40px; padding:0 13px}
 
 :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:6px}

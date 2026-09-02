@@ -673,6 +673,69 @@ window.App = window.App || {};
     ]);
   }
 
+  /* Reference photo. Lazy-loaded from free-exercise-db, never blocking: if
+     there's no signal it just doesn't appear. A "close" match says so rather
+     than pretending it's the same lift. */
+  function photoBlock(photo) {
+    var wrap = el("div", { class: "photoblock" });
+    var img = el("img", {
+      class: "exphoto", src: photo.urls[0], alt: "Reference photo: " + photo.sourceName,
+      loading: "lazy", decoding: "async"
+    });
+    img.addEventListener("error", function () { wrap.remove(); });
+    wrap.appendChild(img);
+    wrap.appendChild(el("div", { class: "photocap" }, [
+      photo.match === "close"
+        ? el("span", { class: "photomatch close", text: "Closest match: " + photo.sourceName })
+        : el("span", { class: "photomatch", text: photo.sourceName }),
+      el("span", { class: "photolic", text: photo.source + " · " + photo.licence })
+    ]));
+    return wrap;
+  }
+
+  /* Plate maths. Shown only for barbell and Smith work, where it's the thing
+     you actually have to do arithmetic for at the rack. */
+  function plateBlock(st, entry) {
+    var barKg = (st.settings.barWeightKg == null) ? M.DEFAULT_BAR_KG : st.settings.barWeightKg;
+    var lp = M.lastPerformance(st, entry.exerciseId);
+    var sug = M.overloadSuggestion(st, entry.exerciseId, entry.slot);
+    var start = (sug.recommendation && sug.recommendation.base.targetWeightKg) ||
+      (lp && M.workingSets(lp.sets).length ? M.workingSets(lp.sets)[0].weightKg : barKg + 20);
+
+    var wrap = el("div", { class: "plateblock" });
+    var out = el("div", { class: "plateout" });
+    var input = el("input", { class: "num", inputmode: "decimal", value: String(M.round2(start)),
+      "aria-label": "target weight for plate maths" });
+
+    function draw() {
+      var target = parseFloat(input.value);
+      var r = M.platesFor(target, barKg, st.settings.availablePlatesKg);
+      out.innerHTML = "";
+      if (!r.ok) {
+        out.appendChild(el("p", { class: "hint", text: r.message || "Enter a target weight." }));
+        return;
+      }
+      out.appendChild(el("div", { class: "platepills" },
+        r.perSide.length
+          ? r.perSide.map(function (p) { return el("span", { class: "platepill", text: String(p) }); })
+          : [el("span", { class: "hint", text: "Just the bar." })]));
+      out.appendChild(el("p", { class: "hint", text:
+        r.perSide.length ? "Per side: " + M.plateText(r.perSide) + "  ·  bar " + M.round2(barKg) + " kg" : "" }));
+      if (!r.exact) {
+        out.appendChild(el("p", { class: "hint warn-text", text:
+          "Can't make " + M.round2(r.totalKg) + " kg exactly with these plates — " +
+          M.round2(r.loadedKg) + " kg is the closest under it." }));
+      }
+    }
+    input.addEventListener("input", draw);
+
+    wrap.appendChild(el("span", { class: "lflbl", text: "Plates per side" }));
+    wrap.appendChild(stepper(input, M.loadIncrement(M.exerciseById(st, entry.exerciseId), entry.slot)));
+    wrap.appendChild(out);
+    draw();
+    return wrap;
+  }
+
   // Per-exercise options: load increment, a note, and what the app knows.
   function exerciseOptions(st, as, entry) {
     var ex = M.exerciseById(st, entry.exerciseId);
@@ -682,6 +745,13 @@ window.App = window.App || {};
     sh.body.appendChild(el("p", { class: "hint", text:
       "Movement family: " + M.familyName(st, entry.movementFamilyId) +
       " · equipment: " + (ex ? ex.equipment : "—") }));
+
+    var photo = M.photoFor(entry.exerciseId);
+    if (photo) sh.body.appendChild(photoBlock(photo));
+
+    if (ex && (ex.equipment === "barbell" || ex.equipment === "smith")) {
+      sh.body.appendChild(plateBlock(st, entry));
+    }
 
     sh.body.appendChild(el("span", { class: "lflbl", text: "Smallest load step (kg)" }));
     sh.body.appendChild(el("div", { class: "seg wide" }, [1, 1.25, 2, 2.5, 5].map(function (v) {
@@ -1081,6 +1151,9 @@ window.App = window.App || {};
       el("span", { class: "chip m", text: ex.equipment })
     ]));
 
+    var photo = M.photoFor(exerciseId);
+    if (photo) nodes.push(el("div", { class: "card" }, [photoBlock(photo)]));
+
     if (!prog.length) {
       nodes.push(el("div", { class: "card empty" }, [el("p", { text: "No working sets logged for this exercise yet." })]));
       return screen({ title: ex.name, lead: back }, nodes, ex.name);
@@ -1350,6 +1423,36 @@ window.App = window.App || {};
       } }, ["Reset all data"])
     ]));
 
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Barbell" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Bar weight" }),
+        el("b", { text: (set.barWeightKg == null ? M.DEFAULT_BAR_KG : set.barWeightKg) + " kg" })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Plates available" }),
+        el("b", { text: (set.availablePlatesKg || M.DEFAULT_PLATES).join(", ") })
+      ]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt("Bar weight in kg", String(set.barWeightKg == null ? M.DEFAULT_BAR_KG : set.barWeightKg));
+        if (v == null) return;
+        var n = parseFloat(v);
+        if (isNaN(n) || n < 0 || n > 60) { App.ui.toast("Enter a bar weight between 0 and 60 kg"); return; }
+        set.barWeightKg = n; S.save(); render();
+      } }, ["Change bar weight"]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var cur = (set.availablePlatesKg || M.DEFAULT_PLATES).join(", ");
+        var v = prompt("Plate sizes your gym has, in kg, separated by commas", cur);
+        if (v == null) return;
+        var list = v.split(",").map(function (x) { return parseFloat(x.trim()); })
+          .filter(function (x) { return !isNaN(x) && x > 0; })
+          .sort(function (a, b) { return b - a; });
+        if (!list.length) { App.ui.toast("Couldn't read any plate sizes"); return; }
+        set.availablePlatesKg = list; S.save(); render();
+      } }, ["Change plates"]),
+      el("p", { class: "hint", text: "Used by the plate maths — tap a barbell exercise's name during a session." })
+    ]));
+
     // ---- Apple Health ----------------------------------------------
     var loggedCount = st.sessions.filter(function (x) { return x.healthLogged; }).length;
     nodes.push(el("div", { class: "card" }, [
@@ -1419,7 +1522,7 @@ window.App = window.App || {};
       el("button", { class: "btn ghost sm", type: "button", onclick: moveToPhoneGuide }, ["Move my data to another device"])
     ]));
 
-    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 8 · schema v" + st.schemaVersion +
+    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 9 · schema v" + st.schemaVersion +
       " · app " + S.appVersion + (env.swState.version ? " · offline " + env.swState.version : "") }));
     return screen({ title: "More" }, nodes, "More");
   }

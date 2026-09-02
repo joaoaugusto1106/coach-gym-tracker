@@ -20,7 +20,7 @@ window.App = window.App || {};
   var LKG_KEY = "coach.lkg";
   var BACKUP_PREFIX = "coach.backup.";
   var SCHEMA = 2;
-  var APP_VERSION = "0.80.0";
+  var APP_VERSION = "0.90.0";
   var MAX_ROLLING_BACKUPS = 5;
 
   var state = null;

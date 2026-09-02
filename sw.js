@@ -15,7 +15,7 @@
 
    To ship a new version, bump VERSION. Old caches are deleted on activate. */
 
-var VERSION = "v8.0.0";
+var VERSION = "v9.0.0";
 var CACHE = "coach-" + VERSION;
 
 var SHELL = [
@@ -24,6 +24,7 @@ var SHELL = [
   "./app.css",
   "./js/util.js",
   "./js/data.js",
+  "./js/photos.js",
   "./js/store.js",
   "./js/model.js",
   "./js/health.js",
@@ -74,7 +75,7 @@ self.addEventListener("message", function (e) {
 });
 
 function isStatic(url) {
-  return /\.(?:css|js|png|svg|webmanifest|json|woff2?)$/i.test(url.pathname);
+  return /\.(?:css|js|png|jpe?g|webp|svg|webmanifest|json|woff2?)$/i.test(url.pathname);
 }
 
 self.addEventListener("fetch", function (e) {

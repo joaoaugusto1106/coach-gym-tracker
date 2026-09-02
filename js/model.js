@@ -1185,6 +1185,60 @@ window.App = window.App || {};
     return { days: days, checked: checked };
   }
 
+  // ---- Stage 9: plate maths ---------------------------------------
+  //
+  // What to hang on each side of the bar. Greedy from the heaviest plate down,
+  // which is what anyone actually does at the rack.
+  var DEFAULT_BAR_KG = 20;
+  var DEFAULT_PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
+
+  function platesFor(totalKg, barKg, availablePlates) {
+    barKg = barKg == null ? DEFAULT_BAR_KG : barKg;
+    var plates = (availablePlates && availablePlates.length ? availablePlates : DEFAULT_PLATES)
+      .slice().sort(function (a, b) { return b - a; });
+
+    if (totalKg == null || !isFinite(totalKg)) return { ok: false, reason: "no-target" };
+    if (totalKg < barKg) {
+      return { ok: false, reason: "below-bar", barKg: barKg,
+        message: "That's less than the bar on its own (" + round2(barKg) + " kg)." };
+    }
+    var perSide = (totalKg - barKg) / 2;
+    if (perSide === 0) return { ok: true, barKg: barKg, perSide: [], totalKg: totalKg, exact: true, leftoverKg: 0 };
+
+    var remaining = perSide, out = [];
+    plates.forEach(function (p) {
+      while (remaining >= p - 1e-9) { out.push(p); remaining = round2(remaining - p); }
+    });
+    var leftover = round2(remaining);
+    return {
+      ok: true, barKg: barKg, perSide: out, totalKg: totalKg,
+      loadedKg: round2(barKg + (perSide - leftover) * 2),
+      leftoverKg: leftover,
+      exact: leftover < 1e-9
+    };
+  }
+
+  // "2 × 20, 1 × 5, 1 × 2.5"
+  function plateText(perSide) {
+    if (!perSide || !perSide.length) return "just the bar";
+    var counts = [], seen = {};
+    perSide.forEach(function (p) { if (!seen[p]) { seen[p] = 0; counts.push(p); } seen[p]++; });
+    return counts.map(function (p) { return seen[p] + " × " + p; }).join(", ");
+  }
+
+  // ---- Stage 9: reference photos ----------------------------------
+  function photoFor(exerciseId) {
+    var map = App.EXERCISE_PHOTOS || {};
+    var rec = map[exerciseId];
+    if (!rec || !rec.images || !rec.images.length) return null;
+    var src = App.EXERCISE_PHOTO_SOURCE || {};
+    return {
+      match: rec.match, sourceName: rec.name,
+      urls: rec.images.map(function (p) { return (src.base || "") + p; }),
+      licence: src.licence, source: src.name, sourceUrl: src.url
+    };
+  }
+
   function confidenceText(level, reasons) {
     if (level === "ok") return null;
     if (level === "none") return (reasons && reasons[0]) || "Not enough comparable data.";
@@ -1209,6 +1263,8 @@ window.App = window.App || {};
     bodyweightSeries: bodyweightSeries, latestBodyweight: latestBodyweight,
     rollingAverage: rollingAverage, weightTrend: weightTrend,
     portionAdvice: portionAdvice, fmtSlope: fmtSlope, bandVerdict: bandVerdict,
+    DEFAULT_BAR_KG: DEFAULT_BAR_KG, DEFAULT_PLATES: DEFAULT_PLATES,
+    platesFor: platesFor, plateText: plateText, photoFor: photoFor,
     median: median, mad: mad, subjectiveScore: subjectiveScore,
     checkinFor: checkinFor, recoveryReadingFor: recoveryReadingFor,
     recoveryBaselines: recoveryBaselines, compareToBaseline: compareToBaseline,
