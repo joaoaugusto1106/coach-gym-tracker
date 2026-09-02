@@ -48,7 +48,29 @@ window.App = window.App || {};
     var weeksIn = Math.floor(d / 7);
     var phase = Math.floor(weeksIn / len) + 1;
     var week = (weeksIn % len) + 1;
-    return { phase: phase, week: week, isDeloadWeek: week === len };
+    return { phase: phase, week: week, weeksIn: weeksIn, isDeloadWeek: week === len };
+  }
+
+  function addDays(iso, n) {
+    var d = isoToDate(iso);
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+  }
+
+  // Absolute week index (0-based) since the phase start date — the key the
+  // weekly review is built around.
+  function weekIndexOf(settings, iso) {
+    var d = daysBetween(settings.phaseStartDate, iso);
+    return Math.floor(d / 7);                       // negative for dates before the start
+  }
+  function weekBounds(settings, weekIndex) {
+    var start = addDays(settings.phaseStartDate, weekIndex * 7);
+    return { start: start, end: addDays(start, 6) };
+  }
+  function weekLabel(settings, weekIndex) {
+    var len = settings.phaseLengthWeeks || 6;
+    if (weekIndex < 0) return "Before this block";
+    return "Phase " + (Math.floor(weekIndex / len) + 1) + " · Week " + ((weekIndex % len) + 1);
   }
 
   // ---- program version in force on a given date --------------------------
@@ -457,6 +479,188 @@ window.App = window.App || {};
     };
   }
 
+  // ---- Stage 3: volume, weekly review, per-exercise progress -------
+  //
+  // A "set" here is one logged WORKING set, counted once against the exercise's
+  // primary muscle group. It's a tracking number, not a claim that every set
+  // produces the same stimulus.
+  function muscleVolume(state, sessions) {
+    var out = {};
+    App.MUSCLES.forEach(function (m) { out[m] = 0; });
+    (sessions || []).forEach(function (s) {
+      if (!countsForHistory(s)) return;
+      s.entries.forEach(function (en) {
+        var ex = exerciseById(state, en.exerciseId);
+        var mg = (ex && ex.muscleGroup) || "core";
+        out[mg] = (out[mg] || 0) + workingSets(en.sets).length;
+      });
+    });
+    return out;
+  }
+
+  // Planned = the set counts the session's own prescription asked for.
+  // Completed = working sets actually logged.
+  function plannedVsCompleted(sessions) {
+    var planned = 0, completed = 0;
+    (sessions || []).forEach(function (s) {
+      if (!countsForHistory(s)) return;
+      s.entries.forEach(function (en) {
+        if (en.planSlotId && en.slot && en.slot.sets) planned += en.slot.sets;
+        completed += workingSets(en.sets).length;
+      });
+    });
+    return { planned: planned, completed: completed };
+  }
+
+  function joinList(items, word) {
+    if (items.length <= 1) return items.join("");
+    return items.slice(0, -1).join(", ") + " " + word + " " + items[items.length - 1];
+  }
+
+  function sessionsInWeek(state, weekIndex) {
+    var b = weekBounds(state.settings, weekIndex);
+    return (state.sessions || []).filter(function (s) {
+      return countsForHistory(s) && s.date >= b.start && s.date <= b.end;
+    }).sort(function (a, b2) { return a.startedAt < b2.startedAt ? -1 : 1; });
+  }
+
+  // Everything the Week view needs, in one honest object.
+  function weeklyReview(state, weekIndex) {
+    var b = weekBounds(state.settings, weekIndex);
+    var sessions = sessionsInWeek(state, weekIndex);
+    var prev = sessionsInWeek(state, weekIndex - 1);
+    var pvc = plannedVsCompleted(sessions);
+    var vol = muscleVolume(state, sessions);
+    var prevVol = muscleVolume(state, prev);
+
+    var prs = [];
+    sessions.forEach(function (s) {
+      collectSessionPRs(state, s).forEach(function (p) {
+        prs.push({ sessionId: s.id, date: s.date, exerciseId: p.exerciseId, weightKg: p.weightKg, reps: p.reps, flags: p.flags, label: p.label });
+      });
+    });
+
+    // top movers: biggest estimated-1RM gain vs the previous time each was done
+    var movers = [];
+    var seen = {};
+    sessions.forEach(function (s) {
+      s.entries.forEach(function (en) {
+        if (seen[en.exerciseId]) return;
+        var ws = workingSets(en.sets);
+        if (!ws.length) return;
+        seen[en.exerciseId] = 1;
+        var best = ws.reduce(function (a, x) { return Math.max(a, e1rmOf(x)); }, 0);
+        var before = exposures(state, en.exerciseId, s.id).filter(function (e) { return e.date < s.date; })[0];
+        if (!before) return;
+        var bestBefore = workingSets(before.sets).reduce(function (a, x) { return Math.max(a, e1rmOf(x)); }, 0);
+        if (!bestBefore) return;
+        movers.push({ exerciseId: en.exerciseId, deltaE1rm: round2(best - bestBefore), from: round2(bestBefore), to: round2(best) });
+      });
+    });
+    movers = movers.filter(function (m) { return Math.abs(m.deltaE1rm) >= 0.5; })
+      .sort(function (a, b2) { return Math.abs(b2.deltaE1rm) - Math.abs(a.deltaE1rm); });
+
+    // what the app couldn't see this week
+    var missing = [];
+    var totalWorking = 0, missingRir = 0;
+    sessions.forEach(function (s) {
+      s.entries.forEach(function (en) {
+        workingSets(en.sets).forEach(function (x) { totalWorking++; if (x.rir == null) missingRir++; });
+      });
+    });
+    if (missingRir) missing.push(missingRir + " of " + totalWorking + " working sets had no RIR logged.");
+    var partials = sessions.filter(function (s) { return s.status === "partial"; }).length;
+    if (partials) missing.push(partials + (partials === 1 ? " session was" : " sessions were") + " finished as partial.");
+    missing.push("Body weight, nutrition and recovery aren't tracked yet (Stages 5 and 6).");
+
+    // one or two practical, non-diagnostic observations
+    var notes = [];
+    if (!sessions.length) {
+      notes.push("No sessions logged in this week.");
+    } else {
+      if (pvc.planned && pvc.completed / pvc.planned < 0.8) {
+        notes.push("You logged " + pvc.completed + " of " + pvc.planned + " prescribed working sets — about " +
+          Math.round(100 * pvc.completed / pvc.planned) + "%.");
+      }
+      if (missingRir > totalWorking * 0.25 && totalWorking) {
+        notes.push("RIR is missing on a quarter of your sets, so several suggestions will show lower confidence.");
+      }
+      var dropped = App.MUSCLES.filter(function (m) { return prevVol[m] > 0 && vol[m] === 0; });
+      if (dropped.length && prev.length) {
+        notes.push("No " + joinList(dropped, "or") + " sets this week — you did " +
+          joinList(dropped.map(function (m) { return prevVol[m] + " " + m; }), "and") + " last week.");
+      }
+      if (prs.length) notes.push(prs.length + (prs.length === 1 ? " personal record" : " personal records") + " this week.");
+      if (!notes.length) notes.push("Nothing unusual — sets, spread and data all look normal for this week.");
+    }
+
+    return {
+      weekIndex: weekIndex, label: weekLabel(state.settings, weekIndex), bounds: b,
+      sessions: sessions, sessionCount: sessions.length,
+      planned: pvc.planned, completed: pvc.completed,
+      volume: vol, previousVolume: prevVol,
+      prs: prs, movers: movers.slice(0, 3),
+      missing: missing, notes: notes.slice(0, 3),
+      totalWorkingSets: totalWorking, missingRirSets: missingRir
+    };
+  }
+
+  // Per-exercise series for the progress view: one point per valid exposure.
+  function exerciseProgress(state, exerciseId) {
+    return exposures(state, exerciseId).slice().reverse().map(function (e) {
+      var ws = workingSets(e.sets);
+      var topWeight = ws.reduce(function (a, x) { return Math.max(a, x.weightKg); }, 0);
+      var bestE1rm = ws.reduce(function (a, x) { return Math.max(a, e1rmOf(x)); }, 0);
+      var atTop = ws.filter(function (x) { return round2(x.weightKg) === round2(topWeight); });
+      return {
+        date: e.date, sessionId: e.sessionId, phase: e.phase, week: e.week,
+        topWeight: round2(topWeight), bestE1rm: round2(bestE1rm),
+        repsAtTop: atTop.length ? Math.max.apply(null, atTop.map(function (x) { return x.reps; })) : 0,
+        setCount: ws.length,
+        totalReps: ws.reduce(function (a, x) { return a + x.reps; }, 0)
+      };
+    });
+  }
+
+  // Exercises that have any logged history, newest-used first.
+  function exercisesWithHistory(state) {
+    var seen = {}, out = [];
+    (state.sessions || []).slice()
+      .filter(countsForHistory)
+      .sort(function (a, b) { return a.startedAt < b.startedAt ? 1 : -1; })
+      .forEach(function (s) {
+        s.entries.forEach(function (en) {
+          if (seen[en.exerciseId] || !workingSets(en.sets).length) return;
+          seen[en.exerciseId] = 1;
+          out.push({ exerciseId: en.exerciseId, lastDate: s.date });
+        });
+      });
+    return out;
+  }
+
+  // Best-ever records for one exercise, from valid sessions only.
+  function exerciseRecords(state, exerciseId) {
+    var all = [];
+    (state.sessions || []).forEach(function (s) {
+      if (!countsForHistory(s)) return;
+      s.entries.forEach(function (en) {
+        if (en.exerciseId !== exerciseId) return;
+        workingSets(en.sets).forEach(function (x) { all.push({ set: x, date: s.date }); });
+      });
+    });
+    if (!all.length) return null;
+    var heaviest = all.reduce(function (a, x) { return x.set.weightKg > a.set.weightKg ? x : a; });
+    var bestE1rm = all.reduce(function (a, x) { return e1rmOf(x.set) > e1rmOf(a.set) ? x : a; });
+    var repsAtHeaviest = all.filter(function (x) { return round2(x.set.weightKg) === round2(heaviest.set.weightKg); })
+      .reduce(function (a, x) { return x.set.reps > a.set.reps ? x : a; });
+    return {
+      heaviest: { weightKg: round2(heaviest.set.weightKg), reps: heaviest.set.reps, date: heaviest.date },
+      bestE1rm: { value: round2(e1rmOf(bestE1rm.set)), weightKg: bestE1rm.set.weightKg, reps: bestE1rm.set.reps, date: bestE1rm.date },
+      mostRepsAtHeaviest: { weightKg: round2(repsAtHeaviest.set.weightKg), reps: repsAtHeaviest.set.reps, date: repsAtHeaviest.date },
+      totalWorkingSets: all.length
+    };
+  }
+
   function confidenceText(level, reasons) {
     if (level === "ok") return null;
     if (level === "none") return (reasons && reasons[0]) || "Not enough comparable data.";
@@ -468,7 +672,12 @@ window.App = window.App || {};
     perthTodayISO: perthTodayISO, todayISO: perthTodayISO,
     isoToDate: isoToDate, daysBetween: daysBetween,
     shortDate: shortDate, humanDate: humanDate, timeOfDay: timeOfDay, stampText: stampText,
-    phaseInfo: phaseInfo,
+    phaseInfo: phaseInfo, addDays: addDays,
+    weekIndexOf: weekIndexOf, weekBounds: weekBounds, weekLabel: weekLabel,
+    muscleVolume: muscleVolume, plannedVsCompleted: plannedVsCompleted,
+    sessionsInWeek: sessionsInWeek, weeklyReview: weeklyReview,
+    exerciseProgress: exerciseProgress, exercisesWithHistory: exercisesWithHistory,
+    exerciseRecords: exerciseRecords,
     activeProgram: activeProgram, programById: programById, programShortName: programShortName,
     dayById: dayById, nextDay: nextDay, rotationDayInfo: rotationDayInfo,
     rotationShouldAutoAdvance: rotationShouldAutoAdvance, advanceRotationIndex: advanceRotationIndex,

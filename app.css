@@ -236,7 +236,7 @@ button.chip{cursor:pointer}
 .finish-missing-row .ic{color:var(--warn)}
 
 .seg.tiny{padding:2px}
-.seg.tiny .segb{font-size:11.5px; padding:6px 0; font-weight:600}
+.seg.tiny .segb{font-size:11.5px; padding:6px 8px; font-weight:600; white-space:nowrap}
 
 .setlogrow.aux,.recall-row.aux{opacity:.55}
 .setlogrow.aux .n,.recall-row.aux .n{color:var(--ink3)}
@@ -281,6 +281,62 @@ body.resting .content{padding-bottom:calc(158px + env(safe-area-inset-bottom))}
 .rt-btn{background:var(--card2); border:0; border-radius:9px; padding:6px 8px; min-width:34px;
   color:var(--accent); font:inherit; font-size:12px; font-weight:700; cursor:pointer;
   display:flex; align-items:center; justify-content:center}
+
+/* ---- Stage 3: filters, weekly review, volume, progress chart ---- */
+.filterbar{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.filtersel{font:inherit; font-size:13px; font-weight:600; padding:9px 10px; border-radius:10px;
+  background:var(--card); border:1px solid var(--sep); color:var(--ink); min-width:0}
+.filterinfo{padding:0 2px}
+
+.phasediv{display:flex; align-items:center; gap:9px; margin:6px 2px; font-size:10.5px;
+  font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink3)}
+.phasediv::before,.phasediv::after{content:""; flex:1; height:1px; background:var(--sep)}
+.phasediv.alt{color:var(--accent)}
+
+.weeknav{display:flex; align-items:center; gap:6px}
+.wn-btn{width:40px; height:40px; display:grid; place-items:center; border:0; border-radius:11px;
+  background:var(--card); color:var(--accent); cursor:pointer; flex:none}
+.wn-btn.off{color:var(--ink3); cursor:default}
+.wn-label{flex:1; text-align:center; min-width:0}
+.wn-title{font-size:15px; font-weight:700}
+.wn-dates{font-size:12px; color:var(--ink3); margin-top:1px}
+
+.statrow{display:flex; gap:10px}
+.stat{flex:1; background:var(--card2); border-radius:12px; padding:11px 8px; text-align:center}
+.stat-v{font-size:22px; font-weight:800; letter-spacing:-.02em; line-height:1.1}
+.stat-l{font-size:11px; color:var(--ink3); font-weight:600; margin-top:3px}
+
+.vol{display:flex; flex-direction:column; gap:8px}
+.vbar{display:grid; grid-template-columns:58px 1fr 56px; align-items:center; gap:9px;
+  font-size:12.5px; font-weight:600; color:var(--ink2)}
+.vbar .track{height:8px; border-radius:5px; background:var(--sep); overflow:hidden}
+.vbar .fill{display:block; height:100%; border-radius:5px; background:var(--accent)}
+.vbar .fill.warn{background:var(--warn)}
+.vbar b{color:var(--ink); text-align:right; font-variant-numeric:tabular-nums}
+.vdelta{font-size:11px; font-weight:700}
+.vdelta.up,b.up{color:var(--accent)}
+.vdelta.down,b.down{color:var(--warn)}
+.moverrow{font-size:13.5px; padding:3px 0}
+
+.notelist{display:flex; flex-direction:column; gap:7px}
+.noteitem{font-size:13px; line-height:1.45; padding-left:12px; position:relative}
+.noteitem::before{content:"—"; position:absolute; left:0; color:var(--ink3)}
+.noteitem.dim{color:var(--ink2)}
+
+.linkrow{text-decoration:none; color:inherit; display:block}
+.card.tintP{background:var(--prSoft)}
+.card.tintP .eyebrow{color:var(--pr)}
+
+.chartwrap{display:flex; flex-direction:column; gap:5px}
+.spark{width:100%; height:120px; display:block; overflow:visible}
+.gridln{stroke:var(--sep); stroke-width:1}
+.trend{stroke:var(--accent); stroke-width:2.5; fill:none; stroke-linecap:round; stroke-linejoin:round;
+  vector-effect:non-scaling-stroke}
+.area{fill:var(--accentSoft); stroke:none}
+.dot{fill:var(--accent)}
+.scatter{fill:var(--ink3)}
+.chartaxis{display:flex; justify-content:space-between; font-size:11px; color:var(--ink3); font-weight:600}
+.chartmax{color:var(--accent)}
 
 .warn-text{color:var(--warn)}
 .sched-dot{color:var(--accent); font-size:8px; line-height:1; margin-right:5px; vertical-align:middle}

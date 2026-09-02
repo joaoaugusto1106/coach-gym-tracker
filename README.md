@@ -18,6 +18,7 @@ Tests are plain pages you open in a browser:
 - <http://localhost:8123/tests/model.test.html> — Epley, phase/week, program versions, PR detection, progression
 - <http://localhost:8123/tests/migration.test.html> — schema v1 → v2 migration, validation, idempotency
 - <http://localhost:8123/tests/rotation.test.html> — the rotation and session-status rules
+- <http://localhost:8123/tests/review.test.html> — week maths, volume, weekly review, per-exercise progress
 
 ## Files
 
@@ -128,6 +129,33 @@ Load increments default to 2 kg for dumbbells, 2.5 kg otherwise, and are configu
 exercise (tap the exercise name during a session). The setting drives both the weight
 stepper and the "add load" target.
 
+## History, Week and Exercises
+
+The History tab has three sections.
+
+**Sessions** — every session, newest first, filterable by training day, phase, program
+version and exercise (filters combine). Dividers mark where a phase or a program version
+began. Abandoned sessions are hidden behind a toggle.
+
+**Week** — one weekly review, steppable back through your history:
+
+- sessions, working sets, and completed vs planned (planned = what each session's own
+  prescription asked for)
+- working sets per muscle group with the change vs last week — counted once per working set
+  against the exercise's main muscle group. It's a tracking number, stated as such, not a
+  claim that every set produces the same stimulus.
+- personal records that week
+- biggest estimated-1RM changes vs the previous time you did each exercise (changes under
+  0.5 kg are ignored as noise)
+- **Worth knowing** — at most three plain observations (shortfall vs planned, a muscle group
+  that dropped out, missing RIR, PR count)
+- **What the app couldn't see** — sets without RIR, partial sessions, and an explicit note
+  that body weight, nutrition and recovery aren't tracked yet
+
+**Exercises** — every exercise you've logged, newest-used first. Tap one for its records, a
+progress chart (best estimated 1RM or heaviest working set per session), and every session
+it appears in. Warm-up and drop sets are excluded throughout; abandoned sessions never count.
+
 ## Devices
 
 Installing on two devices does **not** sync them — each browser has its own dataset. Use
@@ -143,7 +171,8 @@ would need a native app; it is not built and not planned for v1.
 2. ✅ Performance coach — exact-exercise recall, rep-range + RIR progression with four
    actions, repeated-underperformance handling, loading-pattern awareness, configurable
    increments, PR classification, explanations, visible confidence, repeat-set, rest timer
-3. Program & weekly review — phase boundaries, planned vs completed, muscle-group volume
+3. ✅ Program & weekly review — phase and program-version boundaries, session filters,
+   weekly review, muscle-group volume, per-exercise progress charts and records
 4. Mobile & offline — PWA manifest, service worker, iPhone install, Mac → iPhone migration
 5. Nutrition & body weight — six checkpoints, adherence, rolling trend, portion nudges
 6. Recovery — manual check-in, baselines, base recommendation vs today's adjustment

@@ -643,14 +643,16 @@ window.App = window.App || {};
   }
 
   // ==================================================================
-  // History
+  // History — Sessions / Week / Exercises
   // ==================================================================
   var showAbandoned = false;
+  var historyTab = "sessions";
+  var filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "" };
+  var reviewWeek = null;          // null = current week
+  var chartMetric = "e1rm";       // e1rm | weight
 
   function History() {
     var st = S.get();
-    var all = st.sessions.slice().sort(function (a, b) { return a.startedAt < b.startedAt ? 1 : -1; });
-    var sessions = all.filter(function (s) { return showAbandoned || s.status !== "abandoned"; });
     var nodes = [];
 
     if (undoAvailable()) {
@@ -661,17 +663,91 @@ window.App = window.App || {};
       ]));
     }
 
+    nodes.push(el("div", { class: "seg wide" }, [["sessions", "Sessions"], ["week", "Week"], ["exercises", "Exercises"]].map(function (t) {
+      return el("button", { class: "segb" + (historyTab === t[0] ? " on" : ""), type: "button", text: t[1],
+        onclick: function () { historyTab = t[0]; render(); } });
+    })));
+
+    if (historyTab === "week") historySectionWeek(st, nodes);
+    else if (historyTab === "exercises") historySectionExercises(st, nodes);
+    else historySectionSessions(st, nodes);
+
+    return screen({ title: "History" }, nodes, "History");
+  }
+
+  // ---- Sessions (filterable, with phase boundaries) ------------------
+  function historySectionSessions(st, nodes) {
+    var all = st.sessions.slice().sort(function (a, b) { return a.startedAt < b.startedAt ? 1 : -1; });
     if (!all.length) {
       nodes.push(el("div", { class: "card empty" }, [
         icon("cal", 28),
         el("p", { text: "No sessions yet. Start one from Today — it shows up here and survives a reload." })
       ]));
-      return screen({ title: "History" }, nodes, "History");
+      return;
     }
 
-    var abandonedCount = all.filter(function (s) { return s.status === "abandoned"; }).length;
+    var sessions = all.filter(function (s) {
+      if (!showAbandoned && s.status === "abandoned") return false;
+      if (filters.dayId && s.dayId !== filters.dayId) return false;
+      if (filters.phase && String(s.phase) !== filters.phase) return false;
+      if (filters.programVersionId && s.programVersionId !== filters.programVersionId) return false;
+      if (filters.exerciseId && !s.entries.some(function (e) { return e.exerciseId === filters.exerciseId && e.sets.length; })) return false;
+      return true;
+    });
 
+    // filter controls
+    var dayIds = {}, phases = {}, pvIds = {}, exIds = {};
+    all.forEach(function (s) {
+      dayIds[s.dayId] = s.dayName; phases[s.phase] = 1; pvIds[s.programVersionId] = 1;
+      s.entries.forEach(function (e) { if (e.sets.length) exIds[e.exerciseId] = 1; });
+    });
+    function sel(key, label, options) {
+      var s = el("select", { class: "filtersel", "aria-label": label, onchange: function (e) { filters[key] = e.target.value; render(); } },
+        [el("option", { value: "", text: label })].concat(options.map(function (o) {
+          var n = el("option", { value: o[0], text: o[1] });
+          if (filters[key] === o[0]) n.selected = true;
+          return n;
+        })));
+      return s;
+    }
+    nodes.push(el("div", { class: "filterbar" }, [
+      sel("dayId", "Any day", Object.keys(dayIds).map(function (k) { return [k, shortDayName(dayIds[k])]; })),
+      sel("phase", "Any phase", Object.keys(phases).sort().map(function (k) { return [k, "Phase " + k]; })),
+      sel("programVersionId", "Any program", Object.keys(pvIds).map(function (k) {
+        var pv = M.programById(st, k); return [k, pv ? M.programShortName(pv) : k];
+      })),
+      sel("exerciseId", "Any exercise", Object.keys(exIds)
+        .map(function (k) { return [k, M.exerciseName(st, k)]; })
+        .sort(function (a, b) { return a[1] < b[1] ? -1 : 1; }))
+    ]));
+
+    var anyFilter = filters.dayId || filters.phase || filters.programVersionId || filters.exerciseId;
+    if (anyFilter) {
+      nodes.push(el("div", { class: "rowb filterinfo" }, [
+        el("span", { class: "hint", text: sessions.length + " of " + all.length + " sessions" }),
+        el("button", { class: "linkbtn", type: "button", onclick: function () {
+          filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "" }; render();
+        } }, ["Clear filters"])
+      ]));
+    }
+
+    if (!sessions.length) {
+      nodes.push(el("div", { class: "card empty" }, [el("p", { text: "No sessions match these filters." })]));
+      return;
+    }
+
+    var lastPhase = null, lastPv = null;
     sessions.forEach(function (s) {
+      // newest-first, so a change here means the OLDER session sits below a boundary
+      if (lastPhase !== null && s.phase !== lastPhase) {
+        nodes.push(el("div", { class: "phasediv", text: "Phase " + lastPhase + " begins" }));
+      }
+      if (lastPv !== null && s.programVersionId !== lastPv) {
+        var pv = M.programById(st, lastPv);
+        nodes.push(el("div", { class: "phasediv alt", text: "Program " + (pv ? M.programShortName(pv) : lastPv) + " begins" }));
+      }
+      lastPhase = s.phase; lastPv = s.programVersionId;
+
       var sets = s.entries.reduce(function (a, e) { return a + M.workingSets(e.sets).length; }, 0);
       var exCount = s.entries.filter(function (e) { return e.sets.length; }).length;
       var prCount = M.collectSessionPRs(st, s).length;
@@ -689,12 +765,266 @@ window.App = window.App || {};
       ]));
     });
 
+    var abandonedCount = all.filter(function (s) { return s.status === "abandoned"; }).length;
     if (abandonedCount) {
       nodes.push(el("button", { class: "linkbtn center", type: "button", onclick: function () { showAbandoned = !showAbandoned; render(); } },
         [showAbandoned ? "Hide abandoned" : "Show " + abandonedCount + " abandoned"]));
     }
+  }
 
-    return screen({ title: "History" }, nodes, "History");
+  // ---- Week review ---------------------------------------------------
+  function historySectionWeek(st, nodes) {
+    var current = M.weekIndexOf(st.settings, M.perthTodayISO());
+    var wi = (reviewWeek == null) ? current : reviewWeek;
+    var r = M.weeklyReview(st, wi);
+
+    nodes.push(el("div", { class: "weeknav" }, [
+      el("button", { class: "wn-btn", type: "button", "aria-label": "previous week",
+        onclick: function () { reviewWeek = wi - 1; render(); } }, [icon("chev", 18)]),
+      el("div", { class: "wn-label" }, [
+        el("div", { class: "wn-title", text: r.label + (wi === current ? " · this week" : "") }),
+        el("div", { class: "wn-dates", text: M.shortDate(r.bounds.start) + " – " + M.shortDate(r.bounds.end) })
+      ]),
+      el("button", { class: "wn-btn" + (wi >= current ? " off" : ""), type: "button", "aria-label": "next week",
+        onclick: function () { if (wi < current) { reviewWeek = wi + 1; render(); } } }, [icon("chevright", 18)])
+    ]));
+
+    if (!r.sessionCount) {
+      nodes.push(el("div", { class: "card empty" }, [
+        icon("cal", 26),
+        el("p", { text: "No sessions logged in " + r.label.toLowerCase() + "." })
+      ]));
+      return;
+    }
+
+    // headline numbers
+    var pct = r.planned ? Math.round(100 * r.completed / r.planned) : null;
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "This week" }),
+      el("div", { class: "statrow" }, [
+        stat(String(r.sessionCount), r.sessionCount === 1 ? "session" : "sessions"),
+        stat(String(r.completed), "working sets"),
+        stat(pct == null ? "—" : pct + "%", "of planned")
+      ]),
+      r.planned ? el("div", { class: "vbar" }, [
+        el("span", { text: "Planned" }),
+        el("span", { class: "track" }, [el("span", { class: "fill" + (pct < 80 ? " warn" : ""), style: "width:" + Math.min(100, pct) + "%" })]),
+        el("b", { text: r.completed + "/" + r.planned })
+      ]) : null
+    ]));
+
+    // muscle-group volume
+    var maxVol = Math.max.apply(null, App.MUSCLES.map(function (m) { return Math.max(r.volume[m], r.previousVolume[m]); }).concat([1]));
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Working sets per muscle group" }),
+      el("div", { class: "vol" }, App.MUSCLES.map(function (m) {
+        var v = r.volume[m], pv2 = r.previousVolume[m];
+        var delta = v - pv2;
+        return el("div", { class: "vbar" }, [
+          el("span", { text: m === "shoulders" ? "Shldrs" : capitalize(m) }),
+          el("span", { class: "track" }, [el("span", { class: "fill", style: "width:" + Math.round(100 * v / maxVol) + "%" })]),
+          el("b", {}, [String(v), delta !== 0 && pv2 > 0
+            ? el("span", { class: "vdelta " + (delta > 0 ? "up" : "down"), text: (delta > 0 ? " +" : " ") + delta })
+            : null])
+        ]);
+      })),
+      el("p", { class: "hint", text: "Counted once per working set against the exercise's main muscle group, versus last week. A tracking number, not a claim that every set does the same thing." })
+    ]));
+
+    if (r.prs.length) {
+      nodes.push(el("div", { class: "card tintP" }, [
+        el("span", { class: "eyebrow", text: r.prs.length === 1 ? "Personal record" : r.prs.length + " personal records" }),
+        el("div", {}, r.prs.slice(0, 6).map(function (p) {
+          return el("div", { class: "pr-line" }, [
+            icon("trophy", 16),
+            el("div", {}, [
+              el("div", { class: "pr-line-name", text: M.exerciseName(st, p.exerciseId) }),
+              el("div", { class: "pr-line-detail", text: p.weightKg + " kg × " + p.reps + "  ·  " + p.label + "  ·  " + M.shortDate(p.date) })
+            ])
+          ]);
+        }))
+      ]));
+    }
+
+    if (r.movers.length) {
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "Biggest changes vs last time" }),
+        el("div", { class: "vol" }, r.movers.map(function (mv) {
+          return el("div", { class: "rowb moverrow" }, [
+            el("span", { text: M.exerciseName(st, mv.exerciseId) }),
+            el("b", { class: mv.deltaE1rm >= 0 ? "up" : "down",
+              text: (mv.deltaE1rm >= 0 ? "+" : "") + mv.deltaE1rm + " est. 1RM" })
+          ]);
+        })),
+        el("p", { class: "hint", text: "Change in your best estimated 1RM for that exercise since the previous time you did it." })
+      ]));
+    }
+
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Worth knowing" }),
+      el("div", { class: "notelist" }, r.notes.map(function (n) { return el("div", { class: "noteitem", text: n }); }))
+    ]));
+
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "What the app couldn't see" }),
+      el("div", { class: "notelist" }, r.missing.map(function (n) { return el("div", { class: "noteitem dim", text: n }); }))
+    ]));
+
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Sessions this week" }),
+      el("div", { class: "exlist" }, r.sessions.map(function (s) {
+        var sets = s.entries.reduce(function (a, e) { return a + M.workingSets(e.sets).length; }, 0);
+        return el("a", { class: "exrow linkrow", href: "#/session/" + s.id }, [
+          el("div", { class: "exrow-name", text: M.humanDate(s.date) + " · " + s.dayName }),
+          el("div", { class: "exrow-target", text: sets + " working sets" + (s.status !== "completed" ? " · " + s.status : "") })
+        ]);
+      }))
+    ]));
+  }
+
+  function stat(value, label) {
+    return el("div", { class: "stat" }, [
+      el("div", { class: "stat-v", text: value }),
+      el("div", { class: "stat-l", text: label })
+    ]);
+  }
+
+  // ---- Exercises list + progress -------------------------------------
+  function historySectionExercises(st, nodes) {
+    var list = M.exercisesWithHistory(st);
+    if (!list.length) {
+      nodes.push(el("div", { class: "card empty" }, [el("p", { text: "Nothing logged yet. Exercise progress appears here once you've trained something twice." })]));
+      return;
+    }
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: list.length + " exercises with history" }),
+      el("div", { class: "exlist" }, list.map(function (item) {
+        var prog = M.exerciseProgress(st, item.exerciseId);
+        var latest = prog[prog.length - 1];
+        return el("a", { class: "exrow linkrow", href: "#/exercise/" + item.exerciseId }, [
+          el("div", { class: "exrow-name", text: M.exerciseName(st, item.exerciseId) }),
+          el("div", { class: "exrow-target", text: prog.length + (prog.length === 1 ? " session" : " sessions") +
+            " · last " + M.shortDate(item.lastDate) + " · top " + latest.topWeight + " kg × " + latest.repsAtTop })
+        ]);
+      }))
+    ]));
+  }
+
+  function ExerciseDetail(exerciseId) {
+    var st = S.get();
+    var ex = M.exerciseById(st, exerciseId);
+    var back = { label: "History", onClick: function () { historyTab = "exercises"; location.hash = "#/history"; } };
+    if (!ex) {
+      return screen({ title: "Exercise", lead: back }, [el("div", { class: "card empty" }, [el("p", { text: "Exercise not found." })])]);
+    }
+    var prog = M.exerciseProgress(st, exerciseId);
+    var rec = M.exerciseRecords(st, exerciseId);
+    var nodes = [];
+
+    nodes.push(el("div", { class: "muscle" }, [
+      el("span", { class: "chip m", text: capitalize(ex.muscleGroup) }),
+      el("span", { class: "chip m", text: M.familyName(st, ex.movementFamilyId) }),
+      el("span", { class: "chip m", text: ex.equipment })
+    ]));
+
+    if (!prog.length) {
+      nodes.push(el("div", { class: "card empty" }, [el("p", { text: "No working sets logged for this exercise yet." })]));
+      return screen({ title: ex.name, lead: back }, nodes, ex.name);
+    }
+
+    if (rec) {
+      nodes.push(el("div", { class: "card tintP" }, [
+        el("span", { class: "eyebrow", text: "Personal records" }),
+        prLine("Heaviest", rec.heaviest.weightKg + " kg × " + rec.heaviest.reps, rec.heaviest.date),
+        prLine("Best estimated 1RM", rec.bestE1rm.value + " kg (" + rec.bestE1rm.weightKg + " × " + rec.bestE1rm.reps + ")", rec.bestE1rm.date),
+        // only worth a line of its own when it isn't just the heaviest set again
+        rec.mostRepsAtHeaviest.reps > rec.heaviest.reps
+          ? prLine("Most reps at " + rec.mostRepsAtHeaviest.weightKg + " kg", rec.mostRepsAtHeaviest.reps + " reps", rec.mostRepsAtHeaviest.date)
+          : null
+      ]));
+    }
+
+    nodes.push(el("div", { class: "card" }, [
+      el("div", { class: "rowb" }, [
+        el("span", { class: "eyebrow", text: prog.length === 1 ? "One session" : prog.length + " sessions" }),
+        el("div", { class: "seg tiny" }, [["e1rm", "1RM"], ["weight", "Top set"]].map(function (t) {
+          return el("button", { class: "segb" + (chartMetric === t[0] ? " on" : ""), type: "button", text: t[1],
+            onclick: function () { chartMetric = t[0]; render(); } });
+        }))
+      ]),
+      progressChart(prog, chartMetric),
+      el("p", { class: "hint", text: chartMetric === "e1rm"
+        ? "Best estimated 1RM per session (Epley: weight × (1 + reps ÷ 30))."
+        : "Heaviest working set per session." })
+    ]));
+
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Every session" }),
+      el("div", { class: "exlist" }, prog.slice().reverse().map(function (p) {
+        return el("a", { class: "exrow linkrow", href: "#/session/" + p.sessionId }, [
+          el("div", { class: "exrow-name", text: M.shortDate(p.date) + " · " + p.topWeight + " kg × " + p.repsAtTop }),
+          el("div", { class: "exrow-target", text: "Phase " + p.phase + " Wk " + p.week + " · " + p.setCount +
+            " working sets · " + p.totalReps + " total reps · est. 1RM " + p.bestE1rm })
+        ]);
+      }))
+    ]));
+
+    return screen({ title: ex.name, lead: back }, nodes, ex.name);
+  }
+
+  function prLine(label, value, date) {
+    return el("div", { class: "pr-line" }, [
+      icon("trophy", 16),
+      el("div", {}, [
+        el("div", { class: "pr-line-name", text: value }),
+        el("div", { class: "pr-line-detail", text: label + "  ·  " + M.shortDate(date) })
+      ])
+    ]);
+  }
+
+  // Small inline SVG line chart. One point per session; endpoint emphasised.
+  function progressChart(prog, metric) {
+    var W = 300, H = 120, PAD_L = 6, PAD_R = 6, PAD_T = 12, PAD_B = 18;
+    var vals = prog.map(function (p) { return metric === "e1rm" ? p.bestE1rm : p.topWeight; });
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    if (max === min) { max = min + 1; min = min - 1; }
+    var pad = (max - min) * 0.15;
+    min -= pad; max += pad;
+    var n = vals.length;
+    function x(i) { return n === 1 ? W / 2 : PAD_L + (i / (n - 1)) * (W - PAD_L - PAD_R); }
+    function y(v) { return PAD_T + (1 - (v - min) / (max - min)) * (H - PAD_T - PAD_B); }
+
+    var NS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "spark");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Progress chart: " + vals.join(", "));
+
+    function add(tag, attrs) {
+      var n2 = document.createElementNS(NS, tag);
+      Object.keys(attrs).forEach(function (k) { n2.setAttribute(k, attrs[k]); });
+      svg.appendChild(n2); return n2;
+    }
+    [0, 0.5, 1].forEach(function (f) {
+      add("line", { class: "gridln", x1: PAD_L, x2: W - PAD_R, y1: PAD_T + f * (H - PAD_T - PAD_B), y2: PAD_T + f * (H - PAD_T - PAD_B) });
+    });
+    if (n > 1) {
+      var pts = vals.map(function (v, i) { return x(i) + "," + y(v); }).join(" ");
+      add("polyline", { class: "area", points: PAD_L + "," + (H - PAD_B) + " " + pts + " " + (W - PAD_R) + "," + (H - PAD_B) });
+      add("polyline", { class: "trend", points: pts });
+    }
+    vals.forEach(function (v, i) {
+      add("circle", { class: i === n - 1 ? "dot" : "scatter", cx: x(i), cy: y(v), r: i === n - 1 ? 4 : 2.6 });
+    });
+    var wrap = el("div", { class: "chartwrap" }, [svg]);
+    wrap.appendChild(el("div", { class: "chartaxis" }, [
+      el("span", { text: M.shortDate(prog[0].date) }),
+      el("span", { class: "chartmax", text: Math.round(Math.max.apply(null, vals) * 10) / 10 + " kg peak" }),
+      el("span", { text: M.shortDate(prog[n - 1].date) })
+    ]));
+    return wrap;
   }
 
   // ==================================================================
@@ -956,7 +1286,8 @@ window.App = window.App || {};
 
   App.views = {
     Today: Today, Session: Session, SessionDetail: SessionDetail,
-    History: History, More: More, Placeholder: Placeholder,
+    History: History, ExerciseDetail: ExerciseDetail,
+    More: More, Placeholder: Placeholder,
     MigrationRecovery: MigrationRecovery
   };
 })();
