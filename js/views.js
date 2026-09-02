@@ -56,6 +56,16 @@ window.App = window.App || {};
       el("span", { class: "chip m", text: "Program " + M.programShortName(pv) })
     ]));
 
+    // this device isn't the one you log on — say so before anything is typed
+    var sot = st.meta && st.meta.sourceOfTruthDevice;
+    if (sot && sot !== "unset" && !deviceMatchesSourceOfTruth(sot)) {
+      nodes.push(el("div", { class: "notice" }, [
+        icon("warn", 16),
+        el("span", { text: "Your " + (sot === "iphone" ? "iPhone" : "Mac") +
+          " is the source of truth. Anything you log here stays on this device — it won't reach it." })
+      ]));
+    }
+
     // backup reminder
     var lb = st.meta && st.meta.lastBackupAt;
     var backupStale = st.sessions.length >= 3 && (!lb || (Date.now() - new Date(lb).getTime()) > 14 * 86400000);
@@ -1179,17 +1189,106 @@ window.App = window.App || {};
       } }, ["Reset all data"])
     ]));
 
+    // ---- install / offline -----------------------------------------
+    var env = App.env;
+    var installed = env.isStandalone();
+    var swOn = env.swState.controlling || env.swState.registered;
+    var swText = swOn ? "Ready"
+      : !env.swSupported() ? "Not supported by this browser"
+      : env.swState.failed ? "Unavailable here"
+      : "Setting up…";
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "On this device" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Installed to home screen" }),
+        el("b", { class: installed ? "up" : "", text: installed ? "Yes" : "No" })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Works offline" }),
+        el("b", { class: swOn ? "up" : "", text: swText })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Network" }),
+        el("b", { text: env.online() ? "Online" : "Offline" })
+      ]),
+      !installed ? el("button", { class: "btn ghost sm", type: "button", onclick: installGuide }, ["How to install it"]) : null,
+      !swOn && env.swSupported() && location.protocol === "file:"
+        ? el("p", { class: "hint", text: "Offline support needs the app served over http — open it from a server or GitHub Pages, not straight from a file." })
+        : null,
+      env.swState.failed && location.protocol !== "file:"
+        ? el("p", { class: "hint", text: "This browser blocked the offline worker. Everything else works and your data is safe — offline launch just isn't available here." })
+        : null
+    ]));
+
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Device" }),
-      el("p", { class: "hint", text: "Mark which device is the real one for gym logging. The other is for development / reviewing backups." }),
+      el("p", { class: "hint", text: "Two devices means two separate datasets. Mark which one you actually log on; the other will warn you before you type into it." }),
       el("div", { class: "seg wide" }, [["mac", "Mac"], ["iphone", "iPhone"], ["unset", "Not set"]].map(function (t) {
         return el("button", { class: "segb" + (meta.sourceOfTruthDevice === t[0] ? " on" : ""), type: "button", text: t[1],
           onclick: function () { meta.sourceOfTruthDevice = t[0]; S.save(); render(); } });
-      }))
+      })),
+      el("button", { class: "btn ghost sm", type: "button", onclick: moveToPhoneGuide }, ["Move my data to another device"])
     ]));
 
-    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 1.5 · schema v" + st.schemaVersion + " · " + S.appVersion }));
+    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 4 · schema v" + st.schemaVersion +
+      " · app " + S.appVersion + (env.swState.version ? " · offline " + env.swState.version : "") }));
     return screen({ title: "More" }, nodes, "More");
+  }
+
+  function installGuide() {
+    var p = App.env.platform();
+    var sh = App.ui.sheet("Install Coach");
+    var steps;
+    if (p === "iphone" || p === "ipad") {
+      steps = [
+        "Open this page in Safari (not Chrome — only Safari can install it on iOS).",
+        "Tap the Share button in the toolbar.",
+        "Scroll down and tap “Add to Home Screen”.",
+        "Name it Coach and tap Add.",
+        "Open it from the home screen — it runs full-screen and works with no signal."
+      ];
+    } else if (p === "mac") {
+      steps = [
+        "In Safari: File → Add to Dock.",
+        "In Chrome: the install icon in the address bar, or ⋮ → Cast, Save and Share → Install page as app.",
+        "It opens in its own window and works offline once installed."
+      ];
+    } else {
+      steps = [
+        "Open the browser menu.",
+        "Choose “Install app” or “Add to Home screen”.",
+        "It then works offline like any installed app."
+      ];
+    }
+    sh.body.appendChild(el("p", { class: "hint", text: "Installing gives you the app icon, full-screen layout, and offline use in the gym. Your data stays in this browser either way." }));
+    sh.body.appendChild(el("ol", { class: "steps" }, steps.map(function (s) { return el("li", { text: s }); })));
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: sh.close }, ["Got it"]));
+    sh.open();
+  }
+
+  function moveToPhoneGuide() {
+    var st = S.get();
+    var sh = App.ui.sheet("Move your data");
+    sh.body.appendChild(el("p", { class: "hint", text:
+      "Installing on a second device does not sync it. Each browser keeps its own copy. To move your training history, carry a backup file across — then log on one device only." }));
+    sh.body.appendChild(el("ol", { class: "steps" }, [
+      el("li", { text: "On this device, export a backup (button below). It lands in your Downloads or Files." }),
+      el("li", { text: "Put the file somewhere both devices can see it — iCloud Drive, AirDrop, or email it to yourself." }),
+      el("li", { text: "On the other device, open Coach → More → Import backup, and pick that file." }),
+      el("li", { text: "Check the preview counts match, then confirm. Your current data there is snapshotted first." }),
+      el("li", { text: "Set Device to the one you'll actually log on. The other one will warn you before you type into it." })
+    ]));
+    sh.body.appendChild(el("div", { class: "kv" }, [
+      el("div", { class: "rowb" }, [el("span", { text: "This copy holds" }),
+        el("b", { text: st.sessions.length + " sessions" })]),
+      el("div", { class: "rowb" }, [el("span", { text: "Last backup" }),
+        el("b", { text: st.meta.lastBackupAt ? M.stampText(st.meta.lastBackupAt) : "never" })])
+    ]));
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      exportData(); sh.close();
+    } }, ["Export a backup now"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Close"]));
+    sh.open();
   }
 
   function exportData() {
@@ -1283,6 +1382,13 @@ window.App = window.App || {};
 
   function capitalize(s) { return String(s || "").charAt(0).toUpperCase() + String(s || "").slice(1); }
   function shortDayName(n) { return String(n || "").replace(/^Upper · /, ""); }
+
+  function deviceMatchesSourceOfTruth(sot) {
+    var p = App.env.platform();
+    if (sot === "iphone") return p === "iphone" || p === "ipad";
+    if (sot === "mac") return p === "mac";
+    return true;
+  }
 
   App.views = {
     Today: Today, Session: Session, SessionDetail: SessionDetail,

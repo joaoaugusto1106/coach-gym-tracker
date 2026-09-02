@@ -2,3 +2,5 @@
 *.log
 node_modules/
 .coach-server.pid
+*.pyc
+__pycache__/

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coach — tests</title>
+<style>
+  body{font:15px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:640px}
+  h1{font-size:19px; margin-bottom:4px}
+  p.sub{color:#666; margin-top:0}
+  ul{list-style:none; padding:0; display:flex; flex-direction:column; gap:10px}
+  a{display:block; padding:14px 16px; border:1px solid #ddd; border-radius:12px;
+    text-decoration:none; color:inherit; background:#fff}
+  a:hover{border-color:#1a7f37}
+  b{display:block; font-size:15px}
+  span{color:#666; font-size:13px}
+  #totals{margin:16px 0; font-weight:700}
+  .ok{color:#1a7f37} .fail{color:#c4362a}
+</style>
+</head>
+<body>
+<h1>Coach — test suites</h1>
+<p class="sub">Open each one; every suite prints its own pass/fail count.</p>
+<div id="totals">running all suites…</div>
+<ul>
+  <li><a href="model.test.html"><b>Model</b><span>Epley, phase/week, program versions, PR detection, the progression engine</span></a></li>
+  <li><a href="migration.test.html"><b>Migration</b><span>schema v1 → v2, validation, idempotency, rejection of bad data</span></a></li>
+  <li><a href="rotation.test.html"><b>Rotation</b><span>session statuses and the two clocks (calendar vs rotation)</span></a></li>
+  <li><a href="review.test.html"><b>Review</b><span>week maths, muscle-group volume, weekly review, per-exercise progress</span></a></li>
+  <li><a href="sw.test.html"><b>Service worker</b><span>install, activate, fetch strategies, and that it can't touch your data</span></a></li>
+</ul>
+
+<script>
+// Run every suite in a hidden iframe and total the results.
+(function () {
+  var suites = ["model", "migration", "rotation", "review", "sw"];
+  var results = {}, done = 0;
+  var totals = document.getElementById("totals");
+
+  suites.forEach(function (name) {
+    var f = document.createElement("iframe");
+    f.style.cssText = "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none";
+    f.src = name + ".test.html?all=1";
+    f.addEventListener("load", function () {
+      // suites finish synchronously except sw, which awaits fetch — poll briefly
+      var tries = 0;
+      (function poll() {
+        var el = f.contentDocument && f.contentDocument.getElementById("summary");
+        var txt = el ? el.textContent : "";
+        var m = txt.match(/(\d+) passed, (\d+) failed/);
+        if (m) { results[name] = { pass: +m[1], fail: +m[2] }; tick(); return; }
+        if (++tries > 60) { results[name] = { pass: 0, fail: -1 }; tick(); return; }
+        setTimeout(poll, 100);
+      })();
+    });
+    document.body.appendChild(f);
+  });
+
+  function tick() {
+    if (++done < suites.length) return;
+    var p = 0, fl = 0, parts = [];
+    suites.forEach(function (n) {
+      var r = results[n];
+      p += r.pass; if (r.fail > 0) fl += r.fail;
+      parts.push(n + " " + r.pass + (r.fail > 0 ? "/" + r.fail + " failed" : r.fail < 0 ? " (did not finish)" : ""));
+    });
+    totals.className = fl === 0 ? "ok" : "fail";
+    totals.textContent = p + " passed, " + fl + " failed  —  " + parts.join(" · ");
+  }
+})();
+</script>
+</body>
+</html>

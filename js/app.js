@@ -78,6 +78,98 @@ window.App = window.App || {};
     document.body.appendChild(banner);
   };
 
+  // ---- environment ---------------------------------------------------
+  // Used for the honest "this isn't your logging device" warning and the
+  // install instructions. Deliberately coarse — we only need Mac vs iPhone.
+  function platform() {
+    var ua = navigator.userAgent || "";
+    var touch = (navigator.maxTouchPoints || 0) > 1;
+    if (/iPhone|iPod/.test(ua)) return "iphone";
+    if (/iPad/.test(ua) || (/Macintosh/.test(ua) && touch)) return "ipad";
+    if (/Macintosh|Mac OS X/.test(ua)) return "mac";
+    if (/Android/.test(ua)) return "android";
+    return "other";
+  }
+  function isStandalone() {
+    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      navigator.standalone === true;
+  }
+  App.env = {
+    platform: platform,
+    isStandalone: isStandalone,
+    isIOS: function () { var p = platform(); return p === "iphone" || p === "ipad"; },
+    online: function () { return navigator.onLine !== false; },
+    swSupported: function () { return "serviceWorker" in navigator; },
+    swState: { registered: false, controlling: false, version: null, updateReady: false, failed: false }
+  };
+
+  // ---- service worker ------------------------------------------------
+  var updateBar = null;
+  function showUpdateBar(reg) {
+    if (updateBar) return;
+    App.env.swState.updateReady = true;
+    var hasDraft = !App.store.migrationError && !!App.store.get().activeSession;
+    updateBar = el("div", { class: "updatebar" }, [
+      icon("up", 16),
+      el("span", { text: hasDraft
+        ? "Update ready. Your draft is saved — reloading is safe."
+        : "A new version of Coach is ready." }),
+      el("button", { class: "ub-btn", type: "button", onclick: function () {
+        if (reg && reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        else location.reload();
+      } }, ["Reload"]),
+      el("button", { class: "ub-btn ghost", type: "button", "aria-label": "dismiss",
+        onclick: function () { updateBar.remove(); updateBar = null; } }, [icon("x", 14)])
+    ]);
+    document.body.appendChild(updateBar);
+  }
+
+  function registerSW() {
+    if (!("serviceWorker" in navigator)) return;
+    // file:// has no SW; don't noisily fail
+    if (location.protocol === "file:") return;
+
+    navigator.serviceWorker.register("sw.js").then(function (reg) {
+      App.env.swState.registered = true;
+      App.env.swState.controlling = !!navigator.serviceWorker.controller;
+
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBar(reg);
+
+      reg.addEventListener("updatefound", function () {
+        var sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener("statechange", function () {
+          // "installed" with an existing controller means this is an update,
+          // not the very first install
+          if (sw.state === "installed" && navigator.serviceWorker.controller) showUpdateBar(reg);
+        });
+      });
+
+      // ask the active worker what version it is, for the More screen
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "VERSION" });
+      }
+    })["catch"](function (e) {
+      App.env.swState.failed = true;
+      console.warn("Coach: service worker registration failed —", e);
+      // the app still works fully; only offline launch is unavailable
+      if (App.render) App.render();
+    });
+
+    navigator.serviceWorker.addEventListener("message", function (e) {
+      if (e.data && e.data.type === "VERSION") {
+        App.env.swState.version = e.data.version;
+      }
+    });
+
+    var reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+  }
+
   function boot() {
     App.ui.mountSprite();
     App.store.get();            // load + migrate (or set migrationError)
@@ -90,6 +182,9 @@ window.App = window.App || {};
     if (!location.hash) location.hash = "#/today";
     render();
     window.addEventListener("hashchange", render);
+    window.addEventListener("online", render);
+    window.addEventListener("offline", render);
+    registerSW();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

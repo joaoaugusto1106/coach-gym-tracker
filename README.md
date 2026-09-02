@@ -7,18 +7,43 @@ no build step. Single user, offline, data stored locally in the browser.
 
 ```bash
 cd "Joao Gym train"
-python3 -m http.server 8123
+python3 tools/dev-server.py
 ```
 
-Then open <http://localhost:8123>. Opening `index.html` from disk (`file://`) will **not**
-work — the scripts load as separate files and must be served over http.
+Then open <http://localhost:8123>. The dev server sends `Cache-Control: no-store`, so an edit
+always shows up on reload, and serves `.webmanifest` with the right MIME type (Python's
+built-in server doesn't, and without it the app can't be installed).
 
-Tests are plain pages you open in a browser:
+Opening `index.html` from disk (`file://`) will **not** work — the scripts load as separate
+files, and service workers need http.
 
-- <http://localhost:8123/tests/model.test.html> — Epley, phase/week, program versions, PR detection, progression
-- <http://localhost:8123/tests/migration.test.html> — schema v1 → v2 migration, validation, idempotency
-- <http://localhost:8123/tests/rotation.test.html> — the rotation and session-status rules
-- <http://localhost:8123/tests/review.test.html> — week maths, volume, weekly review, per-exercise progress
+Tests: open <http://localhost:8123/tests/> — it runs every suite and prints one total.
+Individual suites: `model`, `migration`, `rotation`, `review`, `sw`.
+
+Icons are generated, not hand-drawn — `python3 tools/make-icons.py` rebuilds `assets/`.
+
+## Installing it on your iPhone
+
+1. Publish the folder (GitHub Pages works: repo → Settings → Pages → deploy from `main`).
+2. Open the published URL **in Safari** — only Safari can install a web app on iOS.
+3. Share → **Add to Home Screen** → name it Coach → Add.
+4. Open it from the home screen. It runs full-screen with no browser chrome, and works with
+   no signal once it has loaded once online.
+
+More → *On this device* shows whether it's installed, whether offline support is ready, and
+the offline bundle version.
+
+### Updating an installed copy
+
+Bump `VERSION` in `sw.js` and republish. Next time you open the app online it downloads the
+new files in the background and shows a small **"A new version of Coach is ready · Reload"**
+bar. Nothing changes until you tap Reload, so an update can never interrupt a session mid-set
+— and your draft is saved either way. The old cache is deleted only after the new one is in
+place, so an interrupted update leaves the previous version working.
+
+**The service worker cannot touch your training data.** It only manages Cache Storage, which
+holds the app's own files. Your sessions live in `localStorage`, which a service worker can't
+read, write or clear. Clearing the cache re-downloads the app; it never loses a workout.
 
 ## Files
 
@@ -32,10 +57,15 @@ Tests are plain pages you open in a browser:
 | `js/model.js` | Pure logic — Epley, phase/week, rotation, recall, PR detection, progression |
 | `js/ui.js` | DOM helpers, icon set, bottom sheet, toast |
 | `js/views.js` | Every screen |
-| `js/app.js` | Boot, hash router, tab bar, save-health banner |
+| `js/app.js` | Boot, hash router, tab bar, save-health banner, service-worker registration and the update bar |
+| `sw.js` | Service worker — offline shell. Bump `VERSION` to ship an update |
+| `manifest.webmanifest` | PWA manifest (name, icons, standalone display) |
+| `assets/` | Generated app icons — rebuild with `tools/make-icons.py` |
+| `tools/dev-server.py` | Local server with caching disabled and correct MIME types |
 
-Asset URLs carry a `?v=` query — bump it when you change a file so the browser doesn't
-serve a stale copy. The Stage 4 service worker will key its cache off the same string.
+Script and stylesheet URLs carry no version query: the service worker's cache name is the
+version. Bump `VERSION` in `sw.js` to ship an update; the dev server disables caching so
+local edits are always live.
 
 ## Two clocks
 
@@ -158,9 +188,16 @@ it appears in. Warm-up and drop sets are excluded throughout; abandoned sessions
 
 ## Devices
 
-Installing on two devices does **not** sync them — each browser has its own dataset. Use
-export/import to move data, and mark the real one in More → Device. Real per-set sync
-would need a native app; it is not built and not planned for v1.
+Installing on two devices does **not** sync them — each browser has its own dataset. Real
+per-set sync would need a native app; it is not built and not planned for v1.
+
+**Moving your data** (More → Device → *Move my data to another device*): export a backup,
+get the file to the other device (iCloud Drive, AirDrop, email), import it there, check the
+preview counts, confirm. Your existing data on the receiving device is snapshotted first.
+
+**Pick one device to log on** and set it in More → Device. The other one then shows a warning
+at the top of Today before you type anything: *"Your iPhone is the source of truth. Anything
+you log here stays on this device — it won't reach it."*
 
 ## Stages
 
@@ -173,7 +210,8 @@ would need a native app; it is not built and not planned for v1.
    increments, PR classification, explanations, visible confidence, repeat-set, rest timer
 3. ✅ Program & weekly review — phase and program-version boundaries, session filters,
    weekly review, muscle-group volume, per-exercise progress charts and records
-4. Mobile & offline — PWA manifest, service worker, iPhone install, Mac → iPhone migration
+4. ✅ Mobile & offline — PWA manifest, generated icons, service worker, install and
+   data-migration guides, source-of-truth warning, no-cache dev server
 5. Nutrition & body weight — six checkpoints, adherence, rolling trend, portion nudges
 6. Recovery — manual check-in, baselines, base recommendation vs today's adjustment
 7. Apple Health write bridge (Shortcut)
