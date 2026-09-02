@@ -930,6 +930,260 @@ window.App = window.App || {};
     return s + " kg/week";
   }
 
+  // ---- Stage 6: recovery ------------------------------------------
+  //
+  // Design rules, all deliberate:
+  // - Baselines are YOURS. Everything is compared to your own rolling median,
+  //   never a population average. "Low" means low for João.
+  // - Median + MAD (median absolute deviation), not mean + SD, so one terrible
+  //   night doesn't move the baseline it's being judged against.
+  // - Red is reserved for a pain or illness flag YOU raised. No wearable
+  //   number, however bad, produces red on its own.
+  // - Nothing here cancels a session, edits history, or names a condition.
+  //   It softens a suggestion and says why. You decide.
+  var ENERGY = { low: -1, normal: 0, high: 0.5 };
+  var SORENESS = { low: 0, moderate: -0.5, high: -1 };
+  var WORKDAY = { light: 0.25, normal: 0, "very-physical": -0.5 };
+  var RECOVERY_WINDOW_DAYS = 30;
+  var MIN_BASELINE_OBSERVATIONS = 5;
+
+  function median(nums) {
+    if (!nums.length) return null;
+    var a = nums.slice().sort(function (x, y) { return x - y; });
+    var m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  }
+  // Median absolute deviation — a robust stand-in for standard deviation.
+  function mad(nums, med) {
+    if (!nums.length) return null;
+    if (med == null) med = median(nums);
+    return median(nums.map(function (x) { return Math.abs(x - med); }));
+  }
+
+  function subjectiveScore(c) {
+    if (!c) return null;
+    return (ENERGY[c.energy] == null ? 0 : ENERGY[c.energy]) +
+      (SORENESS[c.soreness] == null ? 0 : SORENESS[c.soreness]) +
+      (WORKDAY[c.workdayLoad] == null ? 0 : WORKDAY[c.workdayLoad]);
+  }
+
+  function checkinFor(state, dateIso) {
+    var list = state.readinessCheckins || [];
+    for (var i = list.length - 1; i >= 0; i--) if (list[i].date === dateIso) return list[i];
+    return null;
+  }
+  function recoveryReadingFor(state, dateIso) {
+    var list = state.recoveryReadings || [];
+    for (var i = list.length - 1; i >= 0; i--) if (list[i].date === dateIso) return list[i];
+    return null;
+  }
+
+  // Your own normal for one metric, from the days BEFORE the one being judged.
+  function baselineFor(values) {
+    var med = median(values);
+    var spread = mad(values, med);
+    // a flat history gives MAD 0; fall back to a small floor so a single
+    // point below the median doesn't instantly read as "unusually low"
+    return { median: med, mad: spread, n: values.length };
+  }
+  function recoveryBaselines(state, beforeDateIso) {
+    var from = addDays(beforeDateIso, -RECOVERY_WINDOW_DAYS);
+    var checkins = (state.readinessCheckins || []).filter(function (c) {
+      return c.date < beforeDateIso && c.date >= from;
+    });
+    var readings = (state.recoveryReadings || []).filter(function (r) {
+      return r.date < beforeDateIso && r.date >= from;
+    });
+    function nums(list, key) {
+      return list.map(function (x) { return x[key]; })
+        .filter(function (v) { return typeof v === "number" && isFinite(v); });
+    }
+    return {
+      windowDays: RECOVERY_WINDOW_DAYS,
+      subjective: baselineFor(checkins.map(subjectiveScore).filter(function (v) { return v != null; })),
+      hrvMs: baselineFor(nums(readings, "hrvMs")),
+      restingHrBpm: baselineFor(nums(readings, "restingHrBpm")),
+      sleepHours: baselineFor(nums(readings, "sleepHours"))
+    };
+  }
+
+  // Is today's value meaningfully off your own normal?
+  // betterWhenHigher: +1 for HRV and sleep (more is better), -1 for resting
+  // heart rate (more is worse). `delta` always comes out negative when the
+  // reading is worse than your usual, whichever way the metric runs.
+  function compareToBaseline(value, base, betterWhenHigher) {
+    if (value == null || !base || base.median == null || base.n < MIN_BASELINE_OBSERVATIONS) return null;
+    var spread = base.mad || 0;
+    var floor = Math.max(spread, Math.abs(base.median) * 0.04);   // never trip on noise
+    var delta = (value - base.median) * betterWhenHigher;         // negative = worse
+    return {
+      value: value, median: round2(base.median), n: base.n,
+      delta: round2(delta),
+      low: delta < -floor,                                        // "low for you"
+      pct: base.median ? Math.round(Math.abs(value - base.median) / Math.abs(base.median) * 100) : null
+    };
+  }
+
+  var SORENESS_LABEL = { low: "low", moderate: "moderate", high: "high" };
+  var WORKDAY_LABEL = { light: "light", normal: "normal", "very-physical": "very physical" };
+
+  /* Readiness for one day.
+     status: "green" | "amber" | "red" | "unknown"
+     confidence: "ok" | "learning" | "none"  */
+  function readiness(state, dateIso) {
+    dateIso = dateIso || perthTodayISO();
+    var c = checkinFor(state, dateIso);
+    var r = recoveryReadingFor(state, dateIso);
+
+    if (!c && !r) {
+      return {
+        status: "unknown", confidence: "none", date: dateIso,
+        headline: "No check-in today",
+        detail: "Ten seconds of energy, soreness and how physical work was, and the app can tell you whether today's targets still make sense.",
+        signals: [], checkin: null, reading: null, flags: []
+      };
+    }
+
+    var base = recoveryBaselines(state, dateIso);
+    var signals = [], flags = [];
+
+    if (c) {
+      var score = subjectiveScore(c);
+      var cmp = compareToBaseline(score, base.subjective, 1);
+      signals.push({
+        key: "subjective", label: "How you feel",
+        text: "energy " + c.energy + ", soreness " + (SORENESS_LABEL[c.soreness] || c.soreness) +
+          ", work " + (WORKDAY_LABEL[c.workdayLoad] || c.workdayLoad),
+        low: cmp ? cmp.low : (c.energy === "low" && c.soreness === "high"),
+        comparison: cmp,
+        absolute: (c.energy === "low" && c.soreness === "high")
+      });
+      if (c.painOrIllness) flags.push("pain-or-illness");
+    }
+
+    if (r) {
+      [["hrvMs", "HRV", 1, " ms"], ["restingHrBpm", "Resting HR", -1, " bpm"], ["sleepHours", "Sleep", 1, " h"]]
+        .forEach(function (m) {
+          var v = r[m[0]];
+          if (v == null) return;
+          var cmp2 = compareToBaseline(v, base[m[0]], m[2]);
+          signals.push({
+            key: m[0], label: m[1], text: v + m[3],
+            low: cmp2 ? cmp2.low : false, comparison: cmp2, absolute: false
+          });
+        });
+    }
+
+    var comparable = signals.filter(function (s) { return s.comparison; });
+    var lowCount = signals.filter(function (s) { return s.low; }).length;
+    var confidence = comparable.length ? "ok" : "learning";
+
+    // 1. red is only ever something you flagged yourself
+    if (flags.indexOf("pain-or-illness") > -1) {
+      return {
+        status: "red", confidence: confidence, date: dateIso,
+        headline: "You flagged pain or illness",
+        detail: "That's your call to make, not the app's. Nothing has been cancelled and your targets are unchanged — but if something actually hurts, training around it or taking the day is the sensible move. If it persists, see someone qualified.",
+        signals: signals, checkin: c, reading: r, flags: flags
+      };
+    }
+
+    // 2. amber needs either two signals off, or a clearly rough subjective day
+    var subjective = signals.filter(function (s) { return s.key === "subjective"; })[0];
+    var subjectiveRough = subjective && (subjective.low || subjective.absolute);
+    if (lowCount >= 2 || subjectiveRough) {
+      var why = signals.filter(function (s) { return s.low; }).map(function (s) {
+        // the subjective score is an internal number — describe it, don't show it
+        if (s.key === "subjective") return s.text;
+        if (s.comparison) return s.label.toLowerCase() + " " + s.text + " against your usual " + s.comparison.median;
+        return s.label.toLowerCase() + " " + s.text;
+      });
+      if (!why.length && subjective) why = [subjective.text];
+      return {
+        status: "amber", confidence: confidence, date: dateIso,
+        headline: "Below your normal",
+        detail: (confidence === "ok"
+          ? "Compared to your own last " + base.windowDays + " days: "
+          : "Still learning your normal, so this is read on today's answers alone: ") +
+          why.join("; ") + ". Worth easing off — but it's a nudge, not a rule.",
+        signals: signals, checkin: c, reading: r, flags: flags
+      };
+    }
+
+    return {
+      status: "green", confidence: confidence, date: dateIso,
+      headline: "Nothing unusual",
+      detail: confidence === "ok"
+        ? "Today reads normal against your own last " + base.windowDays + " days. Train to your targets."
+        : "Today reads fine. After about " + MIN_BASELINE_OBSERVATIONS + " check-ins the app can compare against your own normal rather than just today's answers.",
+      signals: signals, checkin: c, reading: r, flags: flags
+    };
+  }
+
+  /* The "today" line that sits UNDER a base recommendation.
+     Returns null when there is nothing to say — the base target stands alone.
+     This never edits, replaces or recalculates the base recommendation. */
+  function todayAdjustment(state, rec, dateIso) {
+    var rd = readiness(state, dateIso);
+    if (rd.status === "green" || rd.status === "unknown") return null;
+    if (!rec || !rec.base) return null;
+
+    var base = rec.base;
+    if (rd.status === "red") {
+      return {
+        status: "red", tone: "back",
+        headline: "You flagged pain or illness",
+        detail: "Your target above is unchanged. Whether to train it, train around it, or skip today is yours to decide."
+      };
+    }
+
+    // amber — soften, in the language of the base action
+    var soft;
+    if (base.action === "add-load") {
+      soft = "Consider repeating " + (base.targetWeightKg != null
+        ? round2(base.targetWeightKg - (base.incrementKg || 0)) + " kg" : "last session's load") +
+        " instead of adding today, and stopping a rep short.";
+    } else if (base.action === "hold-add-reps") {
+      soft = "Consider matching last session rather than chasing the extra reps, and stopping a rep short.";
+    } else if (base.action === "reduce-load" || base.action === "consolidate") {
+      soft = "Today is a reasonable day to take the lighter option and keep a rep or two in reserve.";
+    } else {
+      soft = "Go easier than you planned and keep a rep or two in reserve.";
+    }
+    return {
+      status: "amber", tone: "hold",
+      headline: "Recovery is below your normal",
+      detail: soft + " The target above is unchanged — this is a suggestion, not a change to your plan."
+    };
+  }
+
+  // A compact copy to freeze into a saved session, so a later baseline shift
+  // never rewrites what the app was told on the day.
+  function recoverySnapshotFor(state, dateIso) {
+    var rd = readiness(state, dateIso);
+    if (rd.status === "unknown") return null;
+    return {
+      date: rd.date, status: rd.status, confidence: rd.confidence,
+      checkin: rd.checkin ? {
+        energy: rd.checkin.energy, soreness: rd.checkin.soreness,
+        workdayLoad: rd.checkin.workdayLoad, painOrIllness: !!rd.checkin.painOrIllness
+      } : null,
+      reading: rd.reading ? {
+        hrvMs: rd.reading.hrvMs, restingHrBpm: rd.reading.restingHrBpm, sleepHours: rd.reading.sleepHours
+      } : null
+    };
+  }
+
+  function recoveryCoverage(state, startIso, endIso) {
+    var days = 0, checked = 0;
+    var d = startIso, today = perthTodayISO(), guard = 0;
+    while (d <= endIso && guard++ < 400) {
+      if (d <= today) { days++; if (checkinFor(state, d) || recoveryReadingFor(state, d)) checked++; }
+      d = addDays(d, 1);
+    }
+    return { days: days, checked: checked };
+  }
+
   function confidenceText(level, reasons) {
     if (level === "ok") return null;
     if (level === "none") return (reasons && reasons[0]) || "Not enough comparable data.";
@@ -954,6 +1208,11 @@ window.App = window.App || {};
     bodyweightSeries: bodyweightSeries, latestBodyweight: latestBodyweight,
     rollingAverage: rollingAverage, weightTrend: weightTrend,
     portionAdvice: portionAdvice, fmtSlope: fmtSlope, bandVerdict: bandVerdict,
+    median: median, mad: mad, subjectiveScore: subjectiveScore,
+    checkinFor: checkinFor, recoveryReadingFor: recoveryReadingFor,
+    recoveryBaselines: recoveryBaselines, compareToBaseline: compareToBaseline,
+    readiness: readiness, todayAdjustment: todayAdjustment,
+    recoverySnapshotFor: recoverySnapshotFor, recoveryCoverage: recoveryCoverage,
     activeProgram: activeProgram, programById: programById, programShortName: programShortName,
     dayById: dayById, nextDay: nextDay, rotationDayInfo: rotationDayInfo,
     rotationShouldAutoAdvance: rotationShouldAutoAdvance, advanceRotationIndex: advanceRotationIndex,

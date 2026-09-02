@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach — recovery tests</title>
+<style>
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:880px}
+  h1{font-size:18px}
+  .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
+  .row{padding:3px 0; border-bottom:1px solid #eee}
+  #summary{margin:14px 0; font-weight:700; font-size:15px}
+</style>
+</head>
+<body>
+<h1>Coach — readiness, personal baselines &amp; the today adjustment (Stage 6)</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+
+<script src="../js/util.js"></script>
+<script src="../js/data.js"></script>
+<script src="../js/model.js"></script>
+<script>
+(function () {
+  var M = App.model, out = document.getElementById("out"), pass = 0, fail = 0;
+  function ok(name, cond) {
+    var d = document.createElement("div");
+    d.className = "row " + (cond ? "ok" : "fail");
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d); cond ? pass++ : fail++;
+  }
+  function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
+
+  var TODAY = M.perthTodayISO();
+
+  function base(extra) {
+    return Object.assign({
+      settings: { phaseStartDate: M.addDays(TODAY, -35), phaseLengthWeeks: 6, mealPlan: App.NUTRITION_SEED },
+      readinessCheckins: [], recoveryReadings: [], sessions: [], exercises: App.EXERCISE_SEED,
+      bodyweights: [], nutritionDays: []
+    }, extra || {});
+  }
+  function ci(dateIso, energy, soreness, work, pain, note) {
+    return { checkinId: "c" + dateIso, date: dateIso, energy: energy, soreness: soreness,
+      workdayLoad: work, painOrIllness: !!pain, note: note || "", createdAt: "" };
+  }
+  // n normal days ending the day before today
+  function normalHistory(n, opts) {
+    opts = opts || {};
+    var list = [];
+    for (var i = n; i >= 1; i--) {
+      list.push(ci(M.addDays(TODAY, -i), opts.energy || "normal", opts.soreness || "low", opts.work || "normal"));
+    }
+    return list;
+  }
+
+  // ---- robust statistics ----
+  eq("median of an odd list", M.median([3, 1, 2]), 2);
+  eq("median of an even list", M.median([1, 2, 3, 4]), 2.5);
+  eq("median of nothing is null", M.median([]), null);
+  eq("MAD of a flat list is 0", M.mad([5, 5, 5, 5]), 0);
+  eq("MAD ignores a single wild outlier", M.mad([10, 10, 10, 10, 10, 200]), 0);
+  ok("median ignores a single wild outlier too", M.median([10, 10, 10, 10, 10, 200]) === 10);
+
+  // ---- subjective scoring ----
+  ok("a good day scores higher than a bad one",
+    M.subjectiveScore(ci("x", "high", "low", "light")) > M.subjectiveScore(ci("x", "low", "high", "very-physical")));
+  eq("a plain normal day is the zero point", M.subjectiveScore(ci("x", "normal", "low", "normal")), 0);
+  ok("a very physical workday counts against you",
+    M.subjectiveScore(ci("x", "normal", "low", "very-physical")) < M.subjectiveScore(ci("x", "normal", "low", "normal")));
+  eq("no check-in scores null", M.subjectiveScore(null), null);
+
+  // ---- no data ----
+  var none = M.readiness(base(), TODAY);
+  eq("no check-in and no readings → unknown", none.status, "unknown");
+  eq("   with no confidence claimed", none.confidence, "none");
+  ok("   and it asks rather than guessing", /Ten seconds/.test(none.detail));
+
+  // ---- red is only ever self-reported ----
+  var pain = M.readiness(base({ readinessCheckins: normalHistory(10).concat([ci(TODAY, "normal", "low", "normal", true)]) }), TODAY);
+  eq("a pain/illness flag → red", pain.status, "red");
+  ok("   red never diagnoses", !/overtrain|illness is|you are (sick|ill)|injur(y|ed)/i.test(pain.detail));
+  ok("   red never cancels the session", /Nothing has been cancelled/.test(pain.detail));
+  ok("   red says it's your call", /your call/i.test(pain.detail));
+
+  // a terrible wearable reading alone must NOT be red
+  var terribleHrv = base({
+    recoveryReadings: (function () {
+      var list = [];
+      for (var i = 20; i >= 1; i--) list.push({ date: M.addDays(TODAY, -i), hrvMs: 50, restingHrBpm: 50, sleepHours: 7.5 });
+      list.push({ date: TODAY, hrvMs: 12, restingHrBpm: 75, sleepHours: 3 });
+      return list;
+    })()
+  });
+  var tw = M.readiness(terribleHrv, TODAY);
+  ok("catastrophic wearable numbers still never produce red", tw.status !== "red");
+  eq("   they produce amber instead", tw.status, "amber");
+
+  // ---- green ----
+  var green = M.readiness(base({ readinessCheckins: normalHistory(10).concat([ci(TODAY, "normal", "low", "normal")]) }), TODAY);
+  eq("a normal day against a normal history → green", green.status, "green");
+  eq("   with a real baseline behind it", green.confidence, "ok");
+  ok("   and it says to train to your targets", /train to your targets/i.test(green.detail));
+
+  // ---- amber ----
+  var rough = M.readiness(base({ readinessCheckins: normalHistory(10).concat([ci(TODAY, "low", "high", "very-physical")]) }), TODAY);
+  eq("a clearly rough day → amber", rough.status, "amber");
+  ok("   it names the actual answers", /energy low/.test(rough.detail) && /soreness high/.test(rough.detail));
+  ok("   it never exposes the internal score", !/usual 0\b/.test(rough.detail));
+  ok("   it stays a nudge", /nudge, not a rule/.test(rough.detail));
+
+  // ---- baselines are personal ----
+  // Someone who is ALWAYS moderately sore shouldn't be flagged for it.
+  var alwaysSore = base({
+    readinessCheckins: normalHistory(14, { soreness: "moderate", work: "very-physical" })
+      .concat([ci(TODAY, "normal", "moderate", "very-physical")])
+  });
+  eq("a day matching your own usual grind is green, not amber", M.readiness(alwaysSore, TODAY).status, "green");
+  // ...but the same answers against an easy history are amber
+  var usuallyFresh = base({
+    readinessCheckins: normalHistory(14, { energy: "high", soreness: "low", work: "light" })
+      .concat([ci(TODAY, "low", "high", "very-physical")])
+  });
+  eq("the same answers against an easy history are amber", M.readiness(usuallyFresh, TODAY).status, "amber");
+
+  // ---- learning phase ----
+  var learning = M.readiness(base({ readinessCheckins: [ci(M.addDays(TODAY, -1), "normal", "low", "normal"), ci(TODAY, "normal", "low", "normal")] }), TODAY);
+  eq("under 5 check-ins → still learning", learning.confidence, "learning");
+  ok("   and it says so plainly", /learning your normal|After about/.test(learning.detail));
+  var learningBad = M.readiness(base({ readinessCheckins: [ci(TODAY, "low", "high", "normal")] }), TODAY);
+  eq("an obviously bad day is caught even while learning", learningBad.status, "amber");
+  ok("   and it says the read is on today's answers alone", /today's answers alone/.test(learningBad.detail));
+
+  // ---- one bad night must not move the baseline it's judged against ----
+  ok("a single awful day doesn't drag your baseline", (function () {
+    var list = normalHistory(20);
+    list[5] = ci(list[5].date, "low", "high", "very-physical");    // one terrible day in history
+    var s = base({ readinessCheckins: list.concat([ci(TODAY, "normal", "low", "normal")]) });
+    return M.readiness(s, TODAY).status === "green";
+  })());
+
+  // ---- numeric baselines ----
+  var b = M.recoveryBaselines(base({
+    recoveryReadings: (function () {
+      var l = []; for (var i = 10; i >= 1; i--) l.push({ date: M.addDays(TODAY, -i), hrvMs: 48 + (i % 3), restingHrBpm: 51, sleepHours: 7.4 });
+      return l;
+    })()
+  }), TODAY);
+  ok("HRV baseline is built from your own readings", b.hrvMs.n === 10 && b.hrvMs.median >= 48 && b.hrvMs.median <= 50);
+  eq("today's own reading is excluded from its baseline", b.restingHrBpm.n, 10);
+  eq("no readings → empty baseline, not a fake one", M.recoveryBaselines(base(), TODAY).hrvMs.median, null);
+
+  // +1 = higher is better (HRV, sleep); -1 = higher is worse (resting HR)
+  eq("comparison needs at least 5 observations",
+    M.compareToBaseline(30, { median: 50, mad: 4, n: 3 }, 1), null);
+  ok("a clearly low HRV reads as worse than usual",
+    M.compareToBaseline(30, { median: 50, mad: 4, n: 10 }, 1).low === true);
+  ok("a hair under the median is NOT flagged",
+    M.compareToBaseline(49.5, { median: 50, mad: 4, n: 10 }, 1).low === false);
+  ok("an unusually HIGH HRV is never flagged as a problem",
+    M.compareToBaseline(70, { median: 50, mad: 4, n: 10 }, 1).low === false);
+  ok("a raised resting HR reads as worse than usual",
+    M.compareToBaseline(62, { median: 50, mad: 3, n: 10 }, -1).low === true);
+  ok("a LOWER resting HR is never flagged as a problem",
+    M.compareToBaseline(44, { median: 50, mad: 3, n: 10 }, -1).low === false);
+  ok("short sleep reads as worse than usual",
+    M.compareToBaseline(4.5, { median: 7.5, mad: 0.6, n: 10 }, 1).low === true);
+  ok("a flat history still needs a real gap before flagging",
+    M.compareToBaseline(49, { median: 50, mad: 0, n: 10 }, 1).low === false);
+
+  // ---- the today adjustment ----
+  function recWith(action, target, inc) {
+    return { base: { action: action, targetWeightKg: target, incrementKg: inc, tone: "push", headline: "x", reason: "y" } };
+  }
+  var greenState = base({ readinessCheckins: normalHistory(10).concat([ci(TODAY, "normal", "low", "normal")]) });
+  eq("green produces no adjustment at all", M.todayAdjustment(greenState, recWith("add-load", 82.5, 2.5), TODAY), null);
+  eq("unknown produces no adjustment", M.todayAdjustment(base(), recWith("add-load", 82.5, 2.5), TODAY), null);
+
+  var amberState = base({ readinessCheckins: normalHistory(10).concat([ci(TODAY, "low", "high", "very-physical")]) });
+  var adj = M.todayAdjustment(amberState, recWith("add-load", 82.5, 2.5), TODAY);
+  ok("amber softens an add-load into repeating last time", /repeating 80 kg/.test(adj.detail));
+  ok("   and says the base target is untouched", /target above is unchanged/.test(adj.detail));
+  ok("   and calls itself a suggestion", /suggestion, not a change/.test(adj.detail));
+  eq("   tone is hold, never a hard stop", adj.tone, "hold");
+
+  var adjHold = M.todayAdjustment(amberState, recWith("hold-add-reps", 80, 2.5), TODAY);
+  ok("amber softens hold-add-reps into matching last time", /matching last session/.test(adjHold.detail));
+
+  var painState = base({ readinessCheckins: normalHistory(10).concat([ci(TODAY, "normal", "low", "normal", true)]) });
+  var adjRed = M.todayAdjustment(painState, recWith("add-load", 82.5, 2.5), TODAY);
+  eq("red still leaves the target alone", adjRed.status, "red");
+  ok("   and hands the decision back to you", /yours to decide/.test(adjRed.detail));
+  ok("   red never prescribes rest as an order", !/you must|do not train|stop training/i.test(adjRed.detail));
+
+  // the adjustment must never mutate the recommendation it was given
+  ok("the adjustment never touches the base recommendation", (function () {
+    var rec = recWith("add-load", 82.5, 2.5);
+    var before = JSON.stringify(rec);
+    M.todayAdjustment(amberState, rec, TODAY);
+    return JSON.stringify(rec) === before;
+  })());
+
+  // ---- snapshots ----
+  var snap = M.recoverySnapshotFor(amberState, TODAY);
+  eq("a session snapshots the status of the day", snap.status, "amber");
+  eq("   and the raw answers", snap.checkin.energy, "low");
+  eq("no data → no snapshot, rather than a fake one", M.recoverySnapshotFor(base(), TODAY), null);
+  ok("a later baseline shift can't rewrite a snapshot", (function () {
+    var s = JSON.parse(JSON.stringify(snap));
+    for (var i = 21; i <= 40; i++) amberState.readinessCheckins.push(ci(M.addDays(TODAY, -i), "low", "high", "very-physical"));
+    return JSON.stringify(s) === JSON.stringify(snap);
+  })());
+
+  // ---- coverage ----
+  var cov = M.recoveryCoverage(base({ readinessCheckins: [ci(M.addDays(TODAY, -1), "normal", "low", "normal")] }),
+    M.addDays(TODAY, -3), TODAY);
+  eq("coverage counts elapsed days", cov.days, 4);
+  eq("coverage counts days with any recovery data", cov.checked, 1);
+
+  document.getElementById("summary").innerHTML =
+    (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
+})();
+</script>
+</body>
+</html>

@@ -18,7 +18,7 @@ Opening `index.html` from disk (`file://`) will **not** work — the scripts loa
 files, and service workers need http.
 
 Tests: open <http://localhost:8123/tests/> — it runs every suite and prints one total.
-Individual suites: `model`, `migration`, `rotation`, `review`, `nutrition`, `sw`.
+Individual suites: `model`, `migration`, `rotation`, `review`, `nutrition`, `recovery`, `sw`.
 
 Icons are generated, not hand-drawn — `python3 tools/make-icons.py` rebuilds `assets/`.
 
@@ -118,7 +118,11 @@ settings.mealPlan   the six checkpoints (time, label, detail) + kcal/protein tar
 bodyweights[]   entryId, date (Perth), kg, note
 nutritionDays[] date (Perth), checkpoints[] { index, id, state, largerPortion, at }
                 state = done | partial | skipped | none
-recoveryReadings[] readinessCheckins[]                              (Stage 6)
+readinessCheckins[] checkinId, date (Perth), energy, soreness, workdayLoad,
+                    painOrIllness, note
+recoveryReadings[]  date (Perth), hrvMs, restingHrBpm, sleepHours   (filled by
+                    the Health bridge in Stage 8; everything works without it)
+session.recoverySnapshot   the readiness frozen on the day it was trained
 importEvents[] backups[]
 ```
 
@@ -222,6 +226,43 @@ It checks four things in order, and stops at the first one it can't answer:
 Only then does it suggest **one** change — about 50 g more rice at dinner, or half a scoop
 less oats — and says to wait two weeks before the next one.
 
+## Recovery
+
+A ten-second check-in — energy, soreness, how physical work was, and a pain/illness flag.
+Body → Recovery. It appears as a coloured strip at the top of Today, and as a "TODAY" note
+underneath each exercise's target during a session.
+
+**Baselines are yours.** Every comparison is against your own rolling median over the last
+30 days, never a population average. It uses the median and the median absolute deviation
+rather than mean and standard deviation, so one terrible night doesn't move the bar it's
+being judged against. Someone who is always a bit sore doesn't get flagged for being a bit
+sore. Under 5 check-ins it says it's still learning and reads today's answers on their own.
+
+| Status | When |
+|---|---|
+| **Green** | Nothing unusual for you — train to your targets |
+| **Amber** | Two or more signals below your normal, or a clearly rough subjective day |
+| **Red** | **Only** a pain or illness flag *you* raised |
+
+No wearable number, however bad, produces red on its own — that's a deliberate rule, and
+there's a test for it.
+
+**Base target and today's adjustment stay separate.** Recovery never edits, replaces or
+recalculates your progression target. It adds a line underneath it:
+
+> **Add load — 82.5 kg × 6+**
+> All 4 working sets reached 9 reps at RIR 2 or better.
+>
+> **TODAY · Recovery is below your normal**
+> Consider repeating 80 kg instead of adding today, and stopping a rep short. The target
+> above is unchanged — this is a suggestion, not a change to your plan.
+
+It never cancels a session, never changes your program, and never names a condition. On a
+red day it says the target is unchanged and the decision is yours.
+
+Each session freezes the readiness it was trained under, so a later baseline shift can't
+rewrite what the app was told on the day.
+
 ## Devices
 
 Installing on two devices does **not** sync them — each browser has its own dataset. Real
@@ -250,7 +291,8 @@ you log here stays on this device — it won't reach it."*
    data-migration guides, source-of-truth warning, no-cache dev server
 5. ✅ Nutrition & body weight — six checkpoints with done/partial/skipped, daily and
    weekly adherence, weigh-in log, rolling trend, and conservative portion advice
-6. Recovery — manual check-in, baselines, base recommendation vs today's adjustment
+6. ✅ Recovery — manual check-in, personal median/MAD baselines, green/amber/red
+   readiness, and a today-adjustment that never overwrites the base target
 7. Apple Health write bridge (Shortcut)
 8. Apple Health read experiment
 9. Refinement — curated exercise photos, plate maths, accessibility, final polish

@@ -9,6 +9,7 @@
   --pr:#8A5800; --prSoft:rgba(255,159,10,.16); --prDot:#E88C00;
   --warn:#C4362A; --warnSoft:rgba(196,54,42,.10);
   --glass:rgba(247,247,250,.72); --glassBrd:rgba(0,0,0,.08);
+  --glassBar:rgba(247,247,250,.92);
   --radius:16px;
 }
 @media (prefers-color-scheme:dark){
@@ -20,6 +21,7 @@
     --pr:#FFC46B; --prSoft:rgba(255,159,10,.18); --prDot:#FF9F0A;
     --warn:#FF453A; --warnSoft:rgba(255,69,58,.16);
     --glass:rgba(24,24,26,.62); --glassBrd:rgba(255,255,255,.10);
+    --glassBar:rgba(14,14,16,.93);
   }
 }
 :root[data-theme="dark"]{
@@ -30,6 +32,7 @@
   --pr:#FFC46B; --prSoft:rgba(255,159,10,.18); --prDot:#FF9F0A;
   --warn:#FF453A; --warnSoft:rgba(255,69,58,.16);
   --glass:rgba(24,24,26,.62); --glassBrd:rgba(255,255,255,.10);
+  --glassBar:rgba(14,14,16,.93);
 }
 
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
@@ -66,11 +69,15 @@ body{
 .largetitle{font-size:30px; line-height:1.1; font-weight:800; letter-spacing:-.021em; margin:6px 2px 0; text-wrap:balance}
 .largetitle .sub{display:block; font-size:13px; font-weight:500; color:var(--ink3); letter-spacing:0; margin-top:3px}
 
+/* The tab bar sits over whatever you're scrolling, including the big green
+   "Log set" button. At 62% opacity that button tinted the whole bar and made
+   the labels hard to read mid-set, so this layer is deliberately more solid
+   than the nav bar — legibility beats translucency here. */
 .tabbar{
   position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
   padding:8px 6px calc(8px + env(safe-area-inset-bottom));
-  background:var(--glass); backdrop-filter:blur(20px) saturate(180%);
-  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  background:var(--glassBar); backdrop-filter:blur(24px) saturate(140%);
+  -webkit-backdrop-filter:blur(24px) saturate(140%);
   border-top:1px solid var(--glassBrd);
 }
 .tab{flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
@@ -408,6 +415,49 @@ button.linkrow{padding:9px 0}
 .card.advice.tone-hold .advice-head .ic{color:var(--pr)}
 .card.advice.tone-none .advice-head .ic{color:var(--ink3)}
 .card.advice .sug-detail{margin:0}
+
+/* ---- Stage 6: recovery ---- */
+.readystrip{display:flex; align-items:center; gap:11px; width:100%; padding:12px 13px;
+  border-radius:var(--radius); border:0; background:var(--card); color:inherit;
+  font:inherit; cursor:pointer; text-align:left}
+.readystrip .ic{color:var(--ink3); flex:none}
+.rs-dot{width:11px; height:11px; border-radius:50%; flex:none; background:var(--ink3)}
+.readystrip.r-green .rs-dot{background:var(--accent)}
+.readystrip.r-amber .rs-dot{background:var(--prDot)}
+.readystrip.r-red .rs-dot{background:var(--warn)}
+.readystrip.r-unknown .rs-dot{background:none; border:2px dashed var(--ink3)}
+.rs-text{flex:1; min-width:0; display:flex; flex-direction:column; gap:1px}
+.rs-text b{font-size:14.5px; font-weight:700}
+.rs-sub{font-size:12px; color:var(--ink2); line-height:1.35}
+
+.card.advice.readiness-green .advice-head .ic,.card.advice.readiness-green .sug-head{color:var(--accent)}
+.card.advice.readiness-amber .advice-head .ic,.card.advice.readiness-amber .sug-head{color:var(--pr)}
+.card.advice.readiness-red .advice-head .ic,.card.advice.readiness-red .sug-head{color:var(--warn)}
+.card.advice.readiness-unknown .advice-head .ic{color:var(--ink3)}
+
+.siglist{display:flex; flex-direction:column; gap:6px; background:var(--card2);
+  border-radius:11px; padding:10px 11px; margin-top:2px}
+.sigrow{display:flex; align-items:baseline; gap:8px; font-size:13px}
+.siglabel{font-weight:700; min-width:78px}
+.sigval{flex:1; color:var(--ink2)}
+.sigbase{font-size:11.5px; color:var(--ink3); font-variant-numeric:tabular-nums}
+.sigrow.low .sigval{color:var(--pr); font-weight:600}
+
+.dot-green,.dot-amber,.dot-red,.dot-unknown{display:inline-block; width:8px; height:8px;
+  border-radius:50%; margin-right:7px; vertical-align:middle}
+.dot-green{background:var(--accent)} .dot-amber{background:var(--prDot)}
+.dot-red{background:var(--warn)} .dot-unknown{background:var(--ink3)}
+
+.todayadj{display:flex; gap:8px; align-items:flex-start; margin-top:9px; padding:10px 11px;
+  border-radius:11px; background:var(--card2); border-left:3px solid var(--pr)}
+.todayadj.adj-red{border-left-color:var(--warn)}
+.todayadj .ic{flex:none; margin-top:1px; color:var(--pr)}
+.todayadj.adj-red .ic{color:var(--warn)}
+.adj-head{font-size:13.5px; font-weight:700; display:flex; align-items:center; gap:7px; flex-wrap:wrap}
+.adj-tag{font-size:9.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  padding:2px 6px; border-radius:6px; background:var(--prSoft); color:var(--pr)}
+.todayadj.adj-red .adj-tag{background:var(--warnSoft); color:var(--warn)}
+.adj-detail{font-size:12px; color:var(--ink2); line-height:1.4; margin-top:3px}
 
 .warn-text{color:var(--warn)}
 .sched-dot{color:var(--accent); font-size:8px; line-height:1; margin-right:5px; vertical-align:middle}

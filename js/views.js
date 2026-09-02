@@ -66,6 +66,22 @@ window.App = window.App || {};
       ]));
     }
 
+    // compact readiness — before anything else on the screen
+    var rd = M.readiness(st, M.perthTodayISO());
+    nodes.push(el("button", { class: "readystrip r-" + rd.status, type: "button",
+      onclick: function () { bodyTab = "recovery"; location.hash = "#/body"; } }, [
+      el("span", { class: "rs-dot" }),
+      el("span", { class: "rs-text" }, [
+        el("b", { text: rd.status === "unknown" ? "Check in" : rd.headline }),
+        el("span", { class: "rs-sub", text:
+          rd.status === "unknown" ? "10 seconds — energy, soreness, how physical work was"
+          : rd.status === "green" ? "Train to your targets"
+          : rd.status === "red" ? "Targets unchanged — today is your call"
+          : "Today's suggestions are softened" })
+      ]),
+      icon("chevright", 16)
+    ]));
+
     // backup reminder
     var lb = st.meta && st.meta.lastBackupAt;
     var backupStale = st.sessions.length >= 3 && (!lb || (Date.now() - new Date(lb).getTime()) > 14 * 86400000);
@@ -164,7 +180,9 @@ window.App = window.App || {};
       rotationPositionSnapshot: di.dayIndex,
       advancesRotation: false,
       bodyweightAtSession: null,
-      recoverySnapshot: null,
+      // frozen on the day, so a later baseline shift never rewrites what the
+      // app was told at the time
+      recoverySnapshot: M.recoverySnapshotFor(st, U.perthDateISO()),
       notes: "",
       healthLogged: false,
       createdAt: now,
@@ -488,6 +506,8 @@ window.App = window.App || {};
     } }, ["Repeat " + lastLogged.weightKg + " × " + lastLogged.reps]) : null;
 
     var conf = M.confidenceText(sug.confidence, sug.confidenceReasons);
+    // recovery sits UNDER the base target and never replaces it
+    var adj = M.todayAdjustment(st, sug.recommendation, as.date);
 
     return el("div", { class: "card ex" }, [
       el("div", { class: "ex-head" }, [
@@ -522,11 +542,13 @@ window.App = window.App || {};
                 sug.patternNote ? el("div", { class: "sug-pattern", text: sug.patternNote }) : null,
                 conf ? el("div", { class: "conf conf-" + sug.confidence }, [icon("warn", 12), conf]) : null
               ])
-            ])
+            ]),
+            adj ? adjustmentBlock(adj) : null
           ])
         : el("div", { class: "recall firsttime" }, [
             el("div", { class: "sug-head", text: sug.headline }),
-            el("div", { class: "sug-detail", text: sug.detail })
+            el("div", { class: "sug-detail", text: sug.detail }),
+            adj ? adjustmentBlock(adj) : null
           ]),
       setList,
       el("div", { class: "logform" }, [
@@ -577,6 +599,18 @@ window.App = window.App || {};
       as.updatedAt = U.nowISO(); S.save(); sh.close(); render();
     } }, ["Done"]));
     sh.open();
+  }
+
+  // The "today" line. Visually separate from the base target on purpose —
+  // one is what your training says, the other is what today says.
+  function adjustmentBlock(adj) {
+    return el("div", { class: "todayadj adj-" + adj.status }, [
+      icon(adj.status === "red" ? "warn" : "info", 15),
+      el("div", {}, [
+        el("div", { class: "adj-head" }, [el("span", { class: "adj-tag", text: "Today" }), adj.headline]),
+        el("div", { class: "adj-detail", text: adj.detail })
+      ])
+    ]);
   }
 
   function workingIndex(sets, i) {
@@ -1230,7 +1264,7 @@ window.App = window.App || {};
       el("button", { class: "btn ghost sm", type: "button", onclick: moveToPhoneGuide }, ["Move my data to another device"])
     ]));
 
-    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 5 · schema v" + st.schemaVersion +
+    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 6 · schema v" + st.schemaVersion +
       " · app " + S.appVersion + (env.swState.version ? " · offline " + env.swState.version : "") }));
     return screen({ title: "More" }, nodes, "More");
   }
@@ -1507,16 +1541,27 @@ window.App = window.App || {};
   }
 
   // ==================================================================
-  // Body — weight log, trend, portion advice
+  // Body — weight log + trend, and the recovery check-in
   // ==================================================================
+  var bodyTab = "weight";
+
   function Body() {
-    var st = S.get();
+    var nodes = [];
+    nodes.push(el("div", { class: "seg wide" }, [["weight", "Weight"], ["recovery", "Recovery"]].map(function (t) {
+      return el("button", { class: "segb" + (bodyTab === t[0] ? " on" : ""), type: "button", text: t[1],
+        onclick: function () { bodyTab = t[0]; render(); } });
+    })));
+    if (bodyTab === "recovery") bodySectionRecovery(S.get(), nodes);
+    else bodySectionWeight(S.get(), nodes);
+    return screen({ title: "Body" }, nodes, "Body");
+  }
+
+  function bodySectionWeight(st, nodes) {
     var today = M.perthTodayISO();
     var series = M.bodyweightSeries(st);
     var latest = M.latestBodyweight(st);
     var advice = M.portionAdvice(st);
     var t = advice.trend;
-    var nodes = [];
 
     if (!series.length) {
       nodes.push(el("div", { class: "card empty" }, [
@@ -1525,7 +1570,7 @@ window.App = window.App || {};
       ]));
       nodes.push(el("button", { class: "btn primary", type: "button", onclick: function () { weighInSheet(st, today); } },
         [icon("plus", 16), " Log today's weight"]));
-      return screen({ title: "Body" }, nodes, "Body");
+      return;
     }
 
     var todayEntry = series.filter(function (b) { return b.date === today; })[0];
@@ -1575,7 +1620,145 @@ window.App = window.App || {};
       }))
     ]));
 
-    return screen({ title: "Body" }, nodes, "Body");
+  }
+
+  // ---- Recovery ------------------------------------------------------
+  function bodySectionRecovery(st, nodes) {
+    var today = M.perthTodayISO();
+    var rd = M.readiness(st, today);
+    var base = M.recoveryBaselines(st, today);
+
+    nodes.push(readinessCard(rd, true));
+
+    nodes.push(el("button", { class: "btn " + (rd.checkin ? "ghost" : "primary"), type: "button",
+      onclick: function () { checkinSheet(st, today); } },
+      [icon(rd.checkin ? "edit" : "plus", 16), rd.checkin ? " Edit today's check-in" : " Check in — 10 seconds"]));
+
+    // what "normal" currently means
+    var n = base.subjective.n;
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Your baseline" }),
+      el("p", { class: "hint", text: n >= 5
+        ? "Built from your own last " + base.windowDays + " days — " + n + " check-ins. “Low” means low for you, never a population average. The app uses the middle value and your usual spread, so one rough night doesn't move the bar it's judged against."
+        : n + " of 5 check-ins so far. Until there are 5, the app reads today's answers on their own rather than claiming to know your normal." }),
+      base.hrvMs.n || base.restingHrBpm.n || base.sleepHours.n
+        ? el("div", { class: "vol" }, [
+            base.hrvMs.n ? baselineRow("HRV", base.hrvMs, " ms") : null,
+            base.restingHrBpm.n ? baselineRow("Resting HR", base.restingHrBpm, " bpm") : null,
+            base.sleepHours.n ? baselineRow("Sleep", base.sleepHours, " h") : null
+          ])
+        : el("p", { class: "hint", text: "HRV, resting heart rate and sleep aren't connected yet — that's the Apple Health bridge in Stage 8. Everything here works without them." })
+    ]));
+
+    // recent check-ins
+    var recent = (st.readinessCheckins || []).slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 14);
+    if (recent.length) {
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "Recent check-ins" }),
+        el("div", { class: "exlist" }, recent.map(function (c) {
+          var day = M.readiness(st, c.date);
+          return el("button", { class: "exrow linkrow", type: "button",
+            onclick: function () { checkinSheet(st, c.date); } }, [
+            el("div", { class: "exrow-name" }, [
+              el("span", { class: "dot-" + day.status }),
+              M.humanDate(c.date)
+            ]),
+            el("div", { class: "exrow-target", text: "energy " + c.energy + " · soreness " + c.soreness +
+              " · work " + c.workdayLoad.replace("-", " ") + (c.painOrIllness ? " · pain/illness flagged" : "") +
+              (c.note ? " · " + c.note : "") })
+          ]);
+        }))
+      ]));
+    }
+
+    nodes.push(el("p", { class: "hint", text: "Recovery never cancels a session, changes your program, or names a condition. It softens today's suggestion and tells you why. You decide." }));
+  }
+
+  function baselineRow(label, b, unit) {
+    return el("div", { class: "rowb", style: "font-size:13px" }, [
+      el("span", { text: label }),
+      el("b", { text: "usually " + M.round2(b.median) + unit + (b.mad ? "  ±" + M.round2(b.mad) : "") })
+    ]);
+  }
+
+  function readinessCard(rd, full) {
+    var kids = [
+      el("div", { class: "advice-head" }, [
+        icon(rd.status === "red" ? "warn" : rd.status === "amber" ? "info" : rd.status === "green" ? "check" : "info", 17),
+        el("div", { class: "sug-head", text: rd.headline })
+      ]),
+      el("p", { class: "sug-detail", text: rd.detail })
+    ];
+    if (full && rd.signals.length) {
+      kids.push(el("div", { class: "siglist" }, rd.signals.map(function (s) {
+        return el("div", { class: "sigrow" + (s.low ? " low" : "") }, [
+          el("span", { class: "siglabel", text: s.label }),
+          el("span", { class: "sigval", text: s.text }),
+          // the subjective composite is an internal score — never show it
+          (s.comparison && s.key !== "subjective")
+            ? el("span", { class: "sigbase", text: "usual " + M.round2(s.comparison.median) }) : null
+        ]);
+      })));
+    }
+    return el("div", { class: "card advice readiness-" + rd.status }, kids);
+  }
+
+  function checkinSheet(st, dateIso) {
+    var existing = M.checkinFor(st, dateIso);
+    var d = existing
+      ? { energy: existing.energy, soreness: existing.soreness, workdayLoad: existing.workdayLoad,
+          painOrIllness: !!existing.painOrIllness, note: existing.note || "" }
+      : { energy: "normal", soreness: "low", workdayLoad: "normal", painOrIllness: false, note: "" };
+    var sh = App.ui.sheet(dateIso === M.perthTodayISO() ? "How are you today?" : M.humanDate(dateIso));
+
+    function group(key, label, opts) {
+      var seg = el("div", { class: "seg wide" }, opts.map(function (o) {
+        return el("button", { class: "segb" + (d[key] === o[0] ? " on" : ""), type: "button", text: o[1],
+          onclick: function (e) {
+            d[key] = o[0];
+            [].forEach.call(seg.children, function (c) { c.classList.remove("on"); });
+            e.currentTarget.classList.add("on");
+          } });
+      }));
+      sh.body.appendChild(el("div", { class: "lf" }, [el("span", { class: "lflbl", text: label }), seg]));
+    }
+    group("energy", "Energy", [["low", "Low"], ["normal", "Normal"], ["high", "High"]]);
+    group("soreness", "Soreness", [["low", "Low"], ["moderate", "Moderate"], ["high", "High"]]);
+    group("workdayLoad", "Work today", [["light", "Light"], ["normal", "Normal"], ["very-physical", "Very physical"]]);
+
+    var pain = el("input", { type: "checkbox" });
+    pain.checked = d.painOrIllness;
+    pain.addEventListener("change", function () { d.painOrIllness = pain.checked; });
+    sh.body.appendChild(el("label", { class: "checkrow" }, [pain,
+      el("span", { text: "Pain or feeling unwell" })]));
+
+    var note = el("input", { class: "noteinput", type: "text", value: d.note, placeholder: "Note (optional)",
+      oninput: function (e) { d.note = e.target.value; } });
+    sh.body.appendChild(note);
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      if (existing) {
+        existing.energy = d.energy; existing.soreness = d.soreness;
+        existing.workdayLoad = d.workdayLoad; existing.painOrIllness = d.painOrIllness;
+        existing.note = d.note; existing.updatedAt = U.nowISO();
+      } else {
+        st.readinessCheckins.push({
+          checkinId: M.uid("rc"), date: dateIso, energy: d.energy, soreness: d.soreness,
+          workdayLoad: d.workdayLoad, painOrIllness: d.painOrIllness, note: d.note, createdAt: U.nowISO()
+        });
+        st.readinessCheckins.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+      }
+      S.save(); sh.close(); render();
+    } }, [existing ? "Save" : "Save check-in"]));
+
+    if (existing) {
+      sh.body.appendChild(el("button", { class: "btn danger sm", type: "button", onclick: function () {
+        if (!confirm("Delete the check-in for " + M.humanDate(dateIso) + "?")) return;
+        st.readinessCheckins = st.readinessCheckins.filter(function (c) { return c.date !== dateIso; });
+        S.save(); sh.close(); render();
+      } }, ["Delete this check-in"]));
+    }
+    sh.open();
   }
 
   function trendTone(st, slope) {
