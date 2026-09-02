@@ -1,0 +1,54 @@
+
+# Publishes Coach to GitHub Pages.
+#
+# There is no build step — the repository root IS the site — so this uploads the
+# checkout as-is. The app uses only relative URLs, so it works unchanged at the
+# project-page subpath (…github.io/coach-gym-tracker/) as well as at a domain root.
+#
+# To ship an update: bump VERSION in sw.js and merge to main. Installed copies
+# pick it up in the background and offer a "Reload" bar.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GITHUB_TOKEN needs to read the checkout and publish the Pages deployment.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deployments race. In-progress runs are allowed to finish so a
+# half-published site is never left behind.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # enablement: true turns Pages on the first time this runs, so the site
+      # does not need the repository settings to be touched by hand first.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

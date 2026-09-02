@@ -26,9 +26,33 @@ Individual suites: `model`, `migration`, `rotation`, `review`, `nutrition`, `rec
 
 Icons are generated, not hand-drawn — `python3 tools/make-icons.py` rebuilds `assets/`.
 
+## Publishing it
+
+`.github/workflows/deploy-pages.yml` publishes the site on every push to `main`. There is no
+build step — the repository root *is* the site — so the workflow uploads the checkout as-is
+and hands it to Pages. It also turns Pages on the first time it runs, so nothing needs
+clicking in Settings beforehand.
+
+The published URL is **<https://joaoaugusto1106.github.io/coach-gym-tracker/>**.
+
+> **The repository is currently private, and Pages needs a public repository on a free
+> account.** Until it is either made public (repo → Settings → General → Danger Zone →
+> Change visibility) or the account has GitHub Pro, the deploy job will fail at the Pages
+> step. Nothing in this repository is a secret — all training data lives in `localStorage`
+> on the device and none of it is committed — but making it public is a decision, not a
+> detail, so it is left alone here.
+
+Everything is addressed relatively — the service worker registers as `sw.js`, the manifest
+uses `./` — so the app works unchanged at the `/coach-gym-tracker/` subpath, at a domain
+root, or on a custom domain. The one absolute value is the manifest's `id`
+(`/coach-gym-tracker/`), which the spec resolves against the *origin* rather than the
+manifest's own path; it exists to keep the app's identity distinct from anything else you
+ever host on `joaoaugusto1106.github.io`. Change it only alongside a move, and expect
+installed copies to be treated as a new app when you do.
+
 ## Installing it on your iPhone
 
-1. Publish the folder (GitHub Pages works: repo → Settings → Pages → deploy from `main`).
+1. Publish it (above), or serve the folder from any HTTPS URL.
 2. Open the published URL **in Safari** — only Safari can install a web app on iOS.
 3. Share → **Add to Home Screen** → name it Coach → Add.
 4. Open it from the home screen. It runs full-screen with no browser chrome, and works with
@@ -69,6 +93,8 @@ read, write or clear. Clearing the cache re-downloads the app; it never loses a 
 | `manifest.webmanifest` | PWA manifest (name, icons, standalone display) |
 | `assets/` | Generated app icons — rebuild with `tools/make-icons.py` |
 | `tools/dev-server.py` | Local server with caching disabled and correct MIME types |
+| `.github/workflows/deploy-pages.yml` | Publishes the repository root to GitHub Pages on every push to `main` |
+| `docs/on-device-test-plan.md` | The iPhone-only checks: install, offline, both Health bridges, and the decision rules |
 
 Script and stylesheet URLs carry no version query: the service worker's cache name is the
 version. Bump `VERSION` in `sw.js` to ship an update; the dev server disables caching so
@@ -321,6 +347,10 @@ Health app in about fifteen seconds, and the check-in works with none of them.
   right answer is a small native companion instead, or deleting it and keeping manual entry.
 
 Both need the actual iPhone. Until then they stay listed here as unknown rather than assumed.
+
+**[`docs/on-device-test-plan.md`](docs/on-device-test-plan.md) is the sequence that settles
+them** — install, prove offline, build each Shortcut, then a week of timed round-trips with
+the tables to fill in and the rule for what each failure means.
 
 ## Reference photos and plate maths
 

@@ -2,7 +2,7 @@
   "name": "Coach — training, recovery, nutrition",
   "short_name": "Coach",
   "description": "A personal training log with progressive-overload coaching. All data stays on this device.",
-  "id": "/coach/",
+  "id": "/coach-gym-tracker/",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
