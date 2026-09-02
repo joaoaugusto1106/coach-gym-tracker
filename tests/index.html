@@ -27,13 +27,14 @@
   <li><a href="migration.test.html"><b>Migration</b><span>schema v1 → v2, validation, idempotency, rejection of bad data</span></a></li>
   <li><a href="rotation.test.html"><b>Rotation</b><span>session statuses and the two clocks (calendar vs rotation)</span></a></li>
   <li><a href="review.test.html"><b>Review</b><span>week maths, muscle-group volume, weekly review, per-exercise progress</span></a></li>
+  <li><a href="nutrition.test.html"><b>Nutrition &amp; body weight</b><span>meal adherence, weight trend, and when the app will and won't change portions</span></a></li>
   <li><a href="sw.test.html"><b>Service worker</b><span>install, activate, fetch strategies, and that it can't touch your data</span></a></li>
 </ul>
 
 <script>
 // Run every suite in a hidden iframe and total the results.
 (function () {
-  var suites = ["model", "migration", "rotation", "review", "sw"];
+  var suites = ["model", "migration", "rotation", "review", "nutrition", "sw"];
   var results = {}, done = 0;
   var totals = document.getElementById("totals");
 

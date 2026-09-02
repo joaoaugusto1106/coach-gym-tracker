@@ -59,6 +59,7 @@ window.App = window.App || {};
     '<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 11v5.4M12 7.9h.01"/></symbol>' +
     '<symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13.4" r="7.6"/><path d="M12 9.6v3.8l2.4 1.6M9.4 3h5.2"/></symbol>' +
     '<symbol id="i-chevright" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>' +
+    '<symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v13M6 12l6 6 6-6"/></symbol>' +
     '</defs></svg>';
 
   function mountSprite() {

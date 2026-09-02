@@ -18,7 +18,7 @@ Opening `index.html` from disk (`file://`) will **not** work — the scripts loa
 files, and service workers need http.
 
 Tests: open <http://localhost:8123/tests/> — it runs every suite and prints one total.
-Individual suites: `model`, `migration`, `rotation`, `review`, `sw`.
+Individual suites: `model`, `migration`, `rotation`, `review`, `nutrition`, `sw`.
 
 Icons are generated, not hand-drawn — `python3 tools/make-icons.py` rebuilds `assets/`.
 
@@ -114,7 +114,11 @@ sessions[]      sessionId, programVersionId, dayId, startMode, status, started/f
                 wasSwapped, substitutionReason, prescription snapshot, note, sets[]
     set         id, order, type (warmup | working | drop | freestyle), weightKg, reps,
                 rir, loggedAt, note, e1rm, prFlags[]
-bodyweights[] nutritionDays[] recoveryReadings[] readinessCheckins[]   (later stages)
+settings.mealPlan   the six checkpoints (time, label, detail) + kcal/protein targets
+bodyweights[]   entryId, date (Perth), kg, note
+nutritionDays[] date (Perth), checkpoints[] { index, id, state, largerPortion, at }
+                state = done | partial | skipped | none
+recoveryReadings[] readinessCheckins[]                              (Stage 6)
 importEvents[] backups[]
 ```
 
@@ -180,11 +184,43 @@ began. Abandoned sessions are hidden behind a toggle.
 - **Worth knowing** — at most three plain observations (shortfall vs planned, a muscle group
   that dropped out, missing RIR, PR count)
 - **What the app couldn't see** — sets without RIR, partial sessions, and an explicit note
-  that body weight, nutrition and recovery aren't tracked yet
+  that recovery isn't tracked yet
 
 **Exercises** — every exercise you've logged, newest-used first. Tap one for its records, a
 progress chart (best estimated 1RM or heaviest working set per session), and every session
 it appears in. Warm-up and drop sets are excluded throughout; abandoned sessions never count.
+
+## Food and body weight
+
+**Food** is a checklist of João's six real meals — not a food database, and it never will be.
+Each checkpoint is *eaten*, *ate some*, *skipped*, or unmarked. Tap the circle for the common
+case; tap the meal for the rest, plus a "bigger portion" flag. A day scores 1 per meal eaten
+and 0.5 per partial. Today is shown live but kept out of the weekly average until it's over,
+and days you never logged are reported separately rather than counted as zeros.
+
+The kcal and protein targets are shown as what they are: a starting estimate to be corrected
+by what the scale does.
+
+**Body** logs a weigh-in per day and plots every reading with a 7-day rolling average over
+the top — single mornings bounce too much to read. The trend is a least-squares fit over the
+last 21 days, reported in kg/week.
+
+### When the app will and won't change your portions
+
+It checks four things in order, and stops at the first one it can't answer:
+
+1. **Enough weigh-ins?** At least 14 days, 8 readings, ~4 a week. Otherwise it says so and
+   stops — it never invents a number.
+2. **Enough meals logged to judge the plan?** Fewer than 7 scored days, or under 60% coverage,
+   and it won't act on the trend.
+3. **Is adherence good enough?** Under 80% and it says to follow the current plan properly
+   first — changing portions while meals are being missed would be guessing.
+4. **Is the trend clearly and consistently outside the band?** It must miss the
+   0.2–0.3 kg/week target by more than 0.05 kg/week, **and** the 3-week and 2-week windows
+   must agree. A near-miss or a single odd stretch changes nothing.
+
+Only then does it suggest **one** change — about 50 g more rice at dinner, or half a scoop
+less oats — and says to wait two weeks before the next one.
 
 ## Devices
 
@@ -212,7 +248,8 @@ you log here stays on this device — it won't reach it."*
    weekly review, muscle-group volume, per-exercise progress charts and records
 4. ✅ Mobile & offline — PWA manifest, generated icons, service worker, install and
    data-migration guides, source-of-truth warning, no-cache dev server
-5. Nutrition & body weight — six checkpoints, adherence, rolling trend, portion nudges
+5. ✅ Nutrition & body weight — six checkpoints with done/partial/skipped, daily and
+   weekly adherence, weigh-in log, rolling trend, and conservative portion advice
 6. Recovery — manual check-in, baselines, base recommendation vs today's adjustment
 7. Apple Health write bridge (Shortcut)
 8. Apple Health read experiment

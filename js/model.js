@@ -526,9 +526,9 @@ window.App = window.App || {};
 
   // Everything the Week view needs, in one honest object.
   function weeklyReview(state, weekIndex) {
-    var b = weekBounds(state.settings, weekIndex);
     var sessions = sessionsInWeek(state, weekIndex);
     var prev = sessionsInWeek(state, weekIndex - 1);
+    var b = weekBounds(state.settings, weekIndex);
     var pvc = plannedVsCompleted(sessions);
     var vol = muscleVolume(state, sessions);
     var prevVol = muscleVolume(state, prev);
@@ -571,7 +571,14 @@ window.App = window.App || {};
     if (missingRir) missing.push(missingRir + " of " + totalWorking + " working sets had no RIR logged.");
     var partials = sessions.filter(function (s) { return s.status === "partial"; }).length;
     if (partials) missing.push(partials + (partials === 1 ? " session was" : " sessions were") + " finished as partial.");
-    missing.push("Body weight, nutrition and recovery aren't tracked yet (Stages 5 and 6).");
+    // nutrition + body weight for this week, so the review tells the whole story
+    var nut = nutritionRange(state, b.start, b.end);
+    if (nut.adherence == null) missing.push("No meal checkpoints logged this week.");
+    else if (nut.unloggedDays) missing.push(nut.unloggedDays + " day" + (nut.unloggedDays === 1 ? "" : "s") + " had no meals logged.");
+    var weighIns = (state.bodyweights || []).filter(function (w) { return w.date >= b.start && w.date <= b.end; }).length;
+    if (!weighIns) missing.push("No weigh-ins this week.");
+    else if (weighIns < 4) missing.push("Only " + weighIns + " weigh-ins this week — 4 or more makes the trend readable.");
+    missing.push("Recovery isn't tracked yet (Stage 6).");
 
     // one or two practical, non-diagnostic observations
     var notes = [];
@@ -661,6 +668,268 @@ window.App = window.App || {};
     };
   }
 
+  // ---- Stage 5: nutrition adherence -------------------------------
+  //
+  // Each checkpoint is done / partial / skipped / not-marked. A day scores
+  // 1 per done, 0.5 per partial, 0 otherwise. It is a compliance number for
+  // João's own six meals — not calories, and it never pretends to be.
+  var STATE_WEIGHT = { done: 1, partial: 0.5, skipped: 0, none: 0 };
+
+  function mealPlan(state) {
+    var mp = state.settings && state.settings.mealPlan;
+    return (mp && mp.checkpoints && mp.checkpoints.length) ? mp : App.NUTRITION_SEED;
+  }
+  function checkpointCount(state) { return mealPlan(state).checkpoints.length; }
+
+  function nutritionDay(state, dateIso) {
+    var list = state.nutritionDays || [];
+    for (var i = 0; i < list.length; i++) if (list[i].date === dateIso) return list[i];
+    return null;
+  }
+  function blankNutritionDay(state, dateIso) {
+    return {
+      date: dateIso,
+      checkpoints: mealPlan(state).checkpoints.map(function (c, i) {
+        return { index: i, id: c.id, state: "none", largerPortion: false, at: null };
+      })
+    };
+  }
+  // A record is "logged" once anything at all has been marked on it.
+  function dayIsLogged(rec) {
+    return !!rec && (rec.checkpoints || []).some(function (c) { return c.state && c.state !== "none"; });
+  }
+  function dayScore(state, rec) {
+    if (!rec) return 0;
+    var n = checkpointCount(state);
+    if (!n) return 0;
+    var sum = (rec.checkpoints || []).reduce(function (a, c) {
+      return a + (STATE_WEIGHT[c.state] || 0);
+    }, 0);
+    return Math.min(1, sum / n);
+  }
+  function dayCounts(state, rec) {
+    var out = { done: 0, partial: 0, skipped: 0, none: 0, larger: 0 };
+    var n = checkpointCount(state);
+    for (var i = 0; i < n; i++) {
+      var c = (rec && rec.checkpoints && rec.checkpoints[i]) || { state: "none" };
+      out[c.state || "none"]++;
+      if (c.largerPortion) out.larger++;
+    }
+    return out;
+  }
+
+  // Adherence over an arbitrary date range. Unlogged days are reported
+  // separately rather than silently counted as zero — missing data should
+  // reduce confidence, not manufacture a bad score.
+  function nutritionRange(state, startIso, endIso) {
+    var days = [];
+    var todayIso = perthTodayISO();
+    var d = startIso;
+    var guard = 0;
+    while (d <= endIso && guard++ < 400) {
+      if (d <= todayIso) {
+        var rec = nutritionDay(state, d);
+        days.push({
+          date: d, record: rec, logged: dayIsLogged(rec),
+          score: dayScore(state, rec), counts: dayCounts(state, rec),
+          isToday: d === todayIso
+        });
+      }
+      d = addDays(d, 1);
+    }
+    var logged = days.filter(function (x) { return x.logged; });
+    // today is still in progress — don't let a half-finished day drag the mean
+    var scored = logged.filter(function (x) { return !x.isToday; });
+    var adherence = scored.length
+      ? scored.reduce(function (a, x) { return a + x.score; }, 0) / scored.length
+      : null;
+    return {
+      days: days, elapsedDays: days.length,
+      loggedDays: logged.length, scoredDays: scored.length,
+      unloggedDays: days.filter(function (x) { return !x.logged && !x.isToday; }).length,
+      adherence: adherence,
+      coverage: days.length ? logged.length / days.length : 0
+    };
+  }
+  function nutritionWeek(state, weekIndex) {
+    var b = weekBounds(state.settings, weekIndex);
+    var r = nutritionRange(state, b.start, b.end);
+    r.weekIndex = weekIndex;
+    r.label = weekLabel(state.settings, weekIndex);
+    r.bounds = b;
+    return r;
+  }
+
+  // ---- Stage 5: body weight ---------------------------------------
+  function bodyweightSeries(state) {
+    return (state.bodyweights || []).slice()
+      .filter(function (b) { return b && b.date && typeof b.kg === "number"; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  }
+  function latestBodyweight(state) {
+    var s = bodyweightSeries(state);
+    return s.length ? s[s.length - 1] : null;
+  }
+
+  // Trailing 7-day mean at each reading, so a single heavy morning doesn't
+  // look like progress. Needs 3 readings in the window to plot a point.
+  function rollingAverage(series, windowDays) {
+    windowDays = windowDays || 7;
+    return series.map(function (p) {
+      var from = addDays(p.date, -(windowDays - 1));
+      var win = series.filter(function (q) { return q.date >= from && q.date <= p.date; });
+      if (win.length < 3) return { date: p.date, avg: null, n: win.length };
+      return {
+        date: p.date, n: win.length,
+        avg: round2(win.reduce(function (a, q) { return a + q.kg; }, 0) / win.length)
+      };
+    });
+  }
+
+  // Least-squares slope over the last `windowDays`, reported in kg/week.
+  function weightTrend(state, windowDays) {
+    windowDays = windowDays || 21;
+    var series = bodyweightSeries(state);
+    if (!series.length) {
+      return { sufficient: false, reasons: ["No body-weight entries yet."], readings: 0,
+        slopeKgPerWeek: null, series: series, rolling: [], spanDays: 0, perWeek: 0 };
+    }
+    var end = series[series.length - 1].date;
+    var from = addDays(end, -(windowDays - 1));
+    var win = series.filter(function (p) { return p.date >= from; });
+    var spanDays = daysBetween(win[0].date, win[win.length - 1].date) + 1;
+    var perWeek = spanDays > 0 ? (win.length / spanDays) * 7 : 0;
+
+    var reasons = [];
+    if (spanDays < 14) reasons.push("Only " + spanDays + " days of weigh-ins — needs at least 14.");
+    if (win.length < 8) reasons.push("Only " + win.length + " weigh-ins in that window — needs at least 8.");
+    if (perWeek < 3) reasons.push("About " + (Math.round(perWeek * 10) / 10) + " weigh-ins a week — aim for 4 or more.");
+
+    var slope = null;
+    if (win.length >= 2) {
+      var x0 = isoToDate(win[0].date).getTime();
+      var n = win.length, sx = 0, sy = 0, sxy = 0, sxx = 0;
+      win.forEach(function (p) {
+        var x = (isoToDate(p.date).getTime() - x0) / 86400000;
+        sx += x; sy += p.kg; sxy += x * p.kg; sxx += x * x;
+      });
+      var denom = n * sxx - sx * sx;
+      if (denom !== 0) slope = ((n * sxy - sx * sy) / denom) * 7;   // kg per week
+    }
+
+    return {
+      sufficient: reasons.length === 0,
+      reasons: reasons,
+      readings: win.length,
+      spanDays: spanDays,
+      perWeek: Math.round(perWeek * 10) / 10,
+      slopeKgPerWeek: slope == null ? null : round2(slope),
+      windowStart: win[0].date,
+      windowEnd: end,
+      series: series,
+      window: win,
+      rolling: rollingAverage(series, 7)
+    };
+  }
+
+  // ---- Stage 5: the portion nudge ---------------------------------
+  //
+  // Deliberately conservative and single-lever. Decision order:
+  //   1. enough weight data?  2. enough nutrition adherence to judge the plan?
+  //   3. is the trend outside the target band?  4. has it been long enough?
+  function portionAdvice(state) {
+    var s = state.settings;
+    var lo = s.bwTargetKgPerWeekLow, hi = s.bwTargetKgPerWeekHigh;
+    var band = lo + "–" + hi + " kg/week";
+    var t = weightTrend(state, 21);
+
+    if (!t.sufficient) {
+      return { status: "insufficient", tone: "none",
+        headline: "Not enough weigh-ins yet",
+        reason: t.reasons.join(" ") + " Weigh in most mornings under the same conditions and this will start working.",
+        trend: t };
+    }
+
+    // adherence over the same window the trend was measured on
+    var nut = nutritionRange(state, t.windowStart, t.windowEnd);
+    if (nut.scoredDays < 7 || nut.coverage < 0.6) {
+      return { status: "unknown-adherence", tone: "none",
+        headline: "Trend is " + fmtSlope(t.slopeKgPerWeek) + ", but meals aren't logged enough to act on it",
+        reason: "Only " + nut.scoredDays + " of the last " + nut.elapsedDays +
+          " days have meal checkpoints marked. Log the checklist for a couple of weeks before changing portions.",
+        trend: t, nutrition: nut };
+    }
+    if (nut.adherence != null && nut.adherence < 0.8) {
+      return { status: "low-adherence", tone: "hold",
+        headline: "Follow the current plan more consistently first",
+        reason: "Meal adherence is " + Math.round(nut.adherence * 100) + "% over the last " +
+          nut.scoredDays + " logged days. Your weight trend is " + fmtSlope(t.slopeKgPerWeek) +
+          ", but that's hard to read while meals are being missed. Changing portions now would be guessing.",
+        trend: t, nutrition: nut };
+    }
+
+    // 4. how long has it been outside the band, and by enough to matter?
+    var recent = weightTrend(state, 14);
+    var slope = t.slopeKgPerWeek;
+    var recentSlope = recent.slopeKgPerWeek;
+    var verdict = bandVerdict(slope, recentSlope, lo, hi);
+    var bothLow = verdict === "low", bothHigh = verdict === "high";
+
+    if (verdict === "in-band") {
+      var edge = (slope < lo || slope > hi);
+      return { status: "on-target", tone: "push",
+        headline: edge ? "Near enough — hold portions" : "On target — hold portions",
+        reason: "Gaining " + fmtSlope(slope) + " over " + t.spanDays + " days against your " + band +
+          " band, with " + Math.round(nut.adherence * 100) + "% meal adherence. " +
+          (edge ? "That's close enough to the band to be noise — nothing to change yet."
+                : "Nothing to change."),
+        trend: t, nutrition: nut };
+    }
+    if (!bothLow && !bothHigh) {
+      return { status: "watch", tone: "hold",
+        headline: "Outside the band, but only just started",
+        reason: "The 3-week trend is " + fmtSlope(slope) + " against a " + band +
+          " target, but the last fortnight doesn't agree yet (" + fmtSlope(recentSlope) +
+          "). Give it another week before changing anything — one unusual week isn't a signal.",
+        trend: t, nutrition: nut };
+    }
+    if (bothLow) {
+      return { status: "increase", tone: "hold",
+        headline: "Add one portion — 2 more scoops of rice at dinner",
+        reason: "Gaining " + fmtSlope(slope) + " against a " + band + " target, for two weeks running, " +
+          "with meals at " + Math.round(nut.adherence * 100) + "%. Make one change only: about 50 g more " +
+          "cooked rice at dinner. Re-check in two weeks before touching anything else.",
+        trend: t, nutrition: nut };
+    }
+    return { status: "decrease", tone: "back",
+      headline: "Ease one portion back — half a scoop of oats",
+      reason: "Gaining " + fmtSlope(slope) + " against a " + band + " target, for two weeks running. " +
+        "Take about half a scoop of oats out of one of the yoghurt meals. One change, then re-check in two weeks.",
+      trend: t, nutrition: nut };
+  }
+
+  /* Should the trend move portions?  Two guards, both deliberate:
+     - TOLERANCE: a 0.01 kg/week miss is measurement noise, not a signal.
+     - AGREEMENT: the 3-week and 2-week windows must point the same way, so a
+       single odd stretch can't trigger a change on its own.
+     Returns "in-band" | "low" | "high" | "mixed". */
+  var BAND_TOLERANCE = 0.05;
+  function bandVerdict(slopeLong, slopeShort, lo, hi) {
+    if (slopeLong == null) return "in-band";
+    var floor = lo - BAND_TOLERANCE, ceil = hi + BAND_TOLERANCE;
+    if (slopeLong >= floor && slopeLong <= ceil) return "in-band";
+    if (slopeShort == null) return "mixed";
+    if (slopeLong < floor && slopeShort < floor) return "low";
+    if (slopeLong > ceil && slopeShort > ceil) return "high";
+    return "mixed";
+  }
+
+  function fmtSlope(v) {
+    if (v == null) return "unknown";
+    var s = (v >= 0 ? "+" : "") + (Math.round(v * 100) / 100);
+    return s + " kg/week";
+  }
+
   function confidenceText(level, reasons) {
     if (level === "ok") return null;
     if (level === "none") return (reasons && reasons[0]) || "Not enough comparable data.";
@@ -678,6 +947,13 @@ window.App = window.App || {};
     sessionsInWeek: sessionsInWeek, weeklyReview: weeklyReview,
     exerciseProgress: exerciseProgress, exercisesWithHistory: exercisesWithHistory,
     exerciseRecords: exerciseRecords,
+    mealPlan: mealPlan, checkpointCount: checkpointCount,
+    nutritionDay: nutritionDay, blankNutritionDay: blankNutritionDay,
+    dayIsLogged: dayIsLogged, dayScore: dayScore, dayCounts: dayCounts,
+    nutritionRange: nutritionRange, nutritionWeek: nutritionWeek,
+    bodyweightSeries: bodyweightSeries, latestBodyweight: latestBodyweight,
+    rollingAverage: rollingAverage, weightTrend: weightTrend,
+    portionAdvice: portionAdvice, fmtSlope: fmtSlope, bandVerdict: bandVerdict,
     activeProgram: activeProgram, programById: programById, programShortName: programShortName,
     dayById: dayById, nextDay: nextDay, rotationDayInfo: rotationDayInfo,
     rotationShouldAutoAdvance: rotationShouldAutoAdvance, advanceRotationIndex: advanceRotationIndex,

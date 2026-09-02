@@ -46,8 +46,8 @@ window.App = window.App || {};
         break;
       case "history": node = V.History(); break;
       case "exercise": node = V.ExerciseDetail(r.arg); tab = "history"; break;
-      case "body":    node = V.Placeholder("Body", "Body-weight log and trend arrive in Stage 5."); break;
-      case "food":    node = V.Placeholder("Food", "Your six-meal checklist arrives in Stage 5."); break;
+      case "body":    node = V.Body(); break;
+      case "food":    node = V.Food(); break;
       case "more":    node = V.More(); break;
       default:        node = V.Today(); tab = "today";
     }

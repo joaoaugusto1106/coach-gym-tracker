@@ -115,7 +115,28 @@
   var rm = M.weeklyReview(missState, 1);
   ok("missing RIR is reported", rm.missing.some(function (m) { return /1 of 2 working sets had no RIR/.test(m); }));
   ok("partial sessions are reported", rm.missing.some(function (m) { return /finished as partial/.test(m); }));
-  ok("untracked stages are declared, not faked", rm.missing.some(function (m) { return /aren't tracked yet/.test(m); }));
+  ok("untracked stages are declared, not faked", rm.missing.some(function (m) { return /isn't tracked yet/.test(m); }));
+  ok("a week with no meals logged says so", rm.missing.some(function (m) { return /No meal checkpoints logged/.test(m); }));
+  ok("a week with no weigh-ins says so", rm.missing.some(function (m) { return /No weigh-ins this week/.test(m); }));
+  ok("too few weigh-ins to read a trend is called out", (function () {
+    var st6 = state([sess("q", "2026-08-10", "push", [entry("bb-bench", [S(60, 8)], 3)])]);
+    st6.bodyweights = [{ entryId: "b1", date: "2026-08-11", kg: 83, note: "" },
+                       { entryId: "b2", date: "2026-08-13", kg: 83.2, note: "" }];
+    return M.weeklyReview(st6, 1).missing.some(function (m) { return /Only 2 weigh-ins this week/.test(m); });
+  })());
+  ok("a fully-logged week doesn't nag about meals or weigh-ins", (function () {
+    var st7 = state([sess("r", "2026-08-10", "push", [entry("bb-bench", [S(60, 8), S(60, 8), S(60, 8)], 3)])]);
+    st7.nutritionDays = []; st7.bodyweights = [];
+    for (var i = 0; i < 7; i++) {
+      var d = M.addDays("2026-08-10", i);
+      st7.bodyweights.push({ entryId: "w" + i, date: d, kg: 83 + i * 0.03, note: "" });
+      st7.nutritionDays.push({ date: d, checkpoints: App.NUTRITION_SEED.checkpoints.map(function (c, k) {
+        return { index: k, id: c.id, state: "done", largerPortion: false, at: null }; }) });
+    }
+    st7.settings.mealPlan = App.NUTRITION_SEED;
+    var miss = M.weeklyReview(st7, 1).missing.join(" ");
+    return !/No meal checkpoints/.test(miss) && !/No weigh-ins/.test(miss) && !/Only \d+ weigh-ins/.test(miss);
+  })());
   ok("heavy missing RIR becomes an observation", rm.notes.some(function (n) { return /RIR is missing/.test(n); }));
 
   // dropped muscle group vs the previous week

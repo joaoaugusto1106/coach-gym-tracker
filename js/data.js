@@ -13,6 +13,31 @@ window.App = window.App || {};
 
 App.MUSCLES = ["chest", "back", "shoulders", "arms", "legs", "core"];
 
+/* --- Nutrition ------------------------------------------------------------
+   João's actual routine, kept exactly as it is. The app tracks whether each
+   checkpoint happened — it is not a food database and never will be.
+   Copied into settings.mealPlan on first run so it can be edited later
+   without touching this file. */
+App.NUTRITION_SEED = {
+  kcalTargetLow: 3400,
+  kcalTargetHigh: 3500,
+  proteinTarget: 200,
+  checkpoints: [
+    { id: "cp1", time: "~6:30",   label: "Breakfast",
+      detail: "1 scoop oats (microwaved ~1.5 min with water), a good portion of berries, 2 tbsp peanut butter, a little honey, 1 scoop whey" },
+    { id: "cp2", time: "~9:00",   label: "Mid-morning",
+      detail: "220 g yoghurt, 2 scoops oats, a little milk, 1 pear" },
+    { id: "cp3", time: "Lunch",   label: "Lunch",
+      detail: "~150 g chicken, ~300–350 g cooked rice" },
+    { id: "cp4", time: "~3:35",   label: "Pre-gym",
+      detail: "220 g yoghurt, 2 scoops oats, a little milk, 1 pear" },
+    { id: "cp5", time: "Post-workout", label: "In the sauna",
+      detail: "1.5 scoops whey, creatine, water" },
+    { id: "cp6", time: "~7:00",   label: "Dinner",
+      detail: "~150 g chicken, ~300–350 g cooked rice" }
+  ]
+};
+
 App.MOVEMENT_FAMILIES = [
   { id: "flat-press",        name: "Flat press" },
   { id: "incline-press",     name: "Incline press" },

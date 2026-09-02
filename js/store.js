@@ -20,7 +20,7 @@ window.App = window.App || {};
   var LKG_KEY = "coach.lkg";
   var BACKUP_PREFIX = "coach.backup.";
   var SCHEMA = 2;
-  var APP_VERSION = "0.40.0";
+  var APP_VERSION = "0.50.0";
   var MAX_ROLLING_BACKUPS = 5;
 
   var state = null;
@@ -47,7 +47,8 @@ window.App = window.App || {};
         theme: "auto",
         healthWriteShortcutName: "Log Strength Workout",
         healthReadShortcutName: "Read Recovery",
-        restTimerDefaultSec: 150
+        restTimerDefaultSec: 150,
+        mealPlan: U.deepCopy(App.NUTRITION_SEED)
       },
       rotationIndex: 0,
       manualDayId: null,
@@ -92,6 +93,7 @@ window.App = window.App || {};
     set.healthWriteShortcutName = set.healthWriteShortcutName || set.healthShortcutName || "Log Strength Workout";
     set.healthReadShortcutName = set.healthReadShortcutName || "Read Recovery";
     if (set.restTimerDefaultSec == null) set.restTimerDefaultSec = 150;
+    if (!set.mealPlan || !Array.isArray(set.mealPlan.checkpoints)) set.mealPlan = U.deepCopy(App.NUTRITION_SEED);
     s.settings = set;
 
     if (typeof s.rotationIndex !== "number") s.rotationIndex = 0;
@@ -217,6 +219,9 @@ window.App = window.App || {};
       s.programVersions = [pv];
     }
     if (!s.activeProgramVersionId) s.activeProgramVersionId = s.programVersions[0].id;
+    if (!s.settings.mealPlan || !Array.isArray(s.settings.mealPlan.checkpoints)) {
+      s.settings.mealPlan = U.deepCopy(App.NUTRITION_SEED);
+    }
     if (typeof s.rotationIndex !== "number") s.rotationIndex = 0;
     if (s.manualDayId === undefined) s.manualDayId = null;
     if (s.activeSession === undefined) s.activeSession = null;

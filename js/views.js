@@ -1230,7 +1230,7 @@ window.App = window.App || {};
       el("button", { class: "btn ghost sm", type: "button", onclick: moveToPhoneGuide }, ["Move my data to another device"])
     ]));
 
-    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 4 · schema v" + st.schemaVersion +
+    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 5 · schema v" + st.schemaVersion +
       " · app " + S.appVersion + (env.swState.version ? " · offline " + env.swState.version : "") }));
     return screen({ title: "More" }, nodes, "More");
   }
@@ -1355,6 +1355,318 @@ window.App = window.App || {};
   function kvRow(k, v) { return el("div", { class: "rowb" }, [el("span", { text: k }), el("b", { text: v })]); }
 
   // ==================================================================
+  // Food — the six checkpoints
+  // ==================================================================
+  var foodDate = null;   // null = today
+
+  function ensureNutritionDay(st, dateIso) {
+    var rec = M.nutritionDay(st, dateIso);
+    if (!rec) {
+      rec = M.blankNutritionDay(st, dateIso);
+      st.nutritionDays.push(rec);
+      st.nutritionDays.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    }
+    // keep the record in step with the plan if a checkpoint was ever added
+    var plan = M.mealPlan(st).checkpoints;
+    while (rec.checkpoints.length < plan.length) {
+      var i = rec.checkpoints.length;
+      rec.checkpoints.push({ index: i, id: plan[i].id, state: "none", largerPortion: false, at: null });
+    }
+    return rec;
+  }
+
+  function Food() {
+    var st = S.get();
+    var today = M.perthTodayISO();
+    var date = foodDate || today;
+    var plan = M.mealPlan(st);
+    var rec = M.nutritionDay(st, date) || M.blankNutritionDay(st, date);
+    var counts = M.dayCounts(st, rec);
+    var score = M.dayScore(st, rec);
+    var n = plan.checkpoints.length;
+    var nodes = [];
+
+    // date stepper
+    nodes.push(el("div", { class: "weeknav" }, [
+      el("button", { class: "wn-btn", type: "button", "aria-label": "previous day",
+        onclick: function () { foodDate = M.addDays(date, -1); render(); } }, [icon("chev", 18)]),
+      el("div", { class: "wn-label" }, [
+        el("div", { class: "wn-title", text: date === today ? "Today" : M.humanDate(date) }),
+        el("div", { class: "wn-dates", text: M.humanDate(date) })
+      ]),
+      el("button", { class: "wn-btn" + (date >= today ? " off" : ""), type: "button", "aria-label": "next day",
+        onclick: function () { if (date < today) { foodDate = M.addDays(date, 1); render(); } } }, [icon("chevright", 18)])
+    ]));
+
+    nodes.push(el("div", { class: "card" }, [
+      el("div", { class: "rowb" }, [
+        el("span", { class: "eyebrow", text: counts.done + " of " + n + " eaten" }),
+        el("span", { class: "chip" + (score >= 1 ? "" : " m"), text: Math.round(score * 100) + "%" })
+      ]),
+      el("div", { class: "meallist" }, plan.checkpoints.map(function (cp, i) {
+        var c = rec.checkpoints[i] || { state: "none" };
+        return mealRow(st, date, cp, c, i);
+      })),
+      el("p", { class: "hint", text: "Tap the circle to mark it eaten. Tap the meal for partial, skipped, or a bigger portion." })
+    ]));
+
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Daily target" }),
+      el("div", { class: "statrow" }, [
+        stat(plan.kcalTargetLow + "–" + plan.kcalTargetHigh, "kcal"),
+        stat("~" + plan.proteinTarget + " g", "protein")
+      ]),
+      el("p", { class: "hint", text: "A starting estimate from your stats and a physically active job — corrected by what the scale actually does, not treated as a fixed number. The app tracks whether the six meals happened, not grams." })
+    ]));
+
+    // this week
+    var wi = M.weekIndexOf(st.settings, date);
+    var wk = M.nutritionWeek(st, wi);
+    nodes.push(el("div", { class: "card" }, [
+      el("div", { class: "rowb" }, [
+        el("span", { class: "eyebrow", text: wk.label }),
+        el("b", { text: wk.adherence == null ? "—" : Math.round(wk.adherence * 100) + "%" })
+      ]),
+      el("div", { class: "weekstrip" }, wk.days.map(function (d) {
+        var h = Math.max(6, Math.round(d.score * 100));
+        return el("div", { class: "wsday" + (d.date === date ? " sel" : "") }, [
+          el("div", { class: "wstrack" }, [
+            el("div", { class: "wsfill" + (d.logged ? "" : " none"), style: "height:" + (d.logged ? h : 100) + "%" })
+          ]),
+          el("div", { class: "wslab", text: M.humanDate(d.date).slice(0, 1) })
+        ]);
+      })),
+      el("p", { class: "hint", text: wk.adherence == null
+        ? "Nothing logged in this week yet."
+        : "Averaged over " + wk.scoredDays + " logged " + (wk.scoredDays === 1 ? "day" : "days") +
+          (wk.unloggedDays ? " · " + wk.unloggedDays + " not logged" : "") +
+          (date === today ? " · today still in progress" : "") })
+    ]));
+
+    return screen({ title: "Food" }, nodes, "Food");
+  }
+
+  function mealRow(st, date, cp, c, i) {
+    var state = c.state || "none";
+    var box = el("button", {
+      class: "mealbox " + state, type: "button",
+      "aria-label": (state === "done" ? "Mark not eaten: " : "Mark eaten: ") + cp.label,
+      onclick: function (e) {
+        e.stopPropagation();
+        var rec = ensureNutritionDay(st, date);
+        var cur = rec.checkpoints[i];
+        cur.state = (cur.state === "done") ? "none" : "done";
+        cur.at = cur.state === "none" ? null : U.nowISO();
+        S.save(); render();
+      }
+    }, [state === "done" ? icon("check", 14) : state === "partial" ? el("span", { class: "half" })
+      : state === "skipped" ? icon("x", 12) : null]);
+
+    return el("div", { class: "meal " + state }, [
+      box,
+      el("button", { class: "mealbody", type: "button",
+        onclick: function () { mealOptions(st, date, cp, i); } }, [
+        el("div", { class: "mealtime" }, [
+          cp.time === cp.label ? cp.label : cp.time + " · " + cp.label,
+          c.largerPortion ? el("span", { class: "portion-tag", text: "bigger" }) : null,
+          state === "partial" ? el("span", { class: "state-tag", text: "partial" }) : null,
+          state === "skipped" ? el("span", { class: "state-tag skip", text: "skipped" }) : null
+        ]),
+        el("div", { class: "mealdetail", text: cp.detail })
+      ])
+    ]);
+  }
+
+  function mealOptions(st, date, cp, i) {
+    var sh = App.ui.sheet(cp.time === cp.label ? cp.label : cp.time + " · " + cp.label);
+    sh.body.appendChild(el("p", { class: "hint", text: cp.detail }));
+    var rec = ensureNutritionDay(st, date);
+    var cur = rec.checkpoints[i];
+
+    [["done", "Ate it"], ["partial", "Ate some of it"], ["skipped", "Skipped it"], ["none", "Not marked"]]
+      .forEach(function (opt) {
+        sh.body.appendChild(el("button", {
+          class: "btn " + (cur.state === opt[0] ? "primary" : "ghost"), type: "button",
+          onclick: function () {
+            cur.state = opt[0];
+            cur.at = opt[0] === "none" ? null : U.nowISO();
+            S.save(); sh.close(); render();
+          }
+        }, [opt[1]]));
+      });
+
+    var bigger = el("input", { type: "checkbox" });
+    bigger.checked = !!cur.largerPortion;
+    bigger.addEventListener("change", function () {
+      cur.largerPortion = bigger.checked; S.save(); render();
+    });
+    sh.body.appendChild(el("label", { class: "checkrow" }, [bigger,
+      el("span", { text: "Bigger portion than usual" })]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Close"]));
+    sh.open();
+  }
+
+  // ==================================================================
+  // Body — weight log, trend, portion advice
+  // ==================================================================
+  function Body() {
+    var st = S.get();
+    var today = M.perthTodayISO();
+    var series = M.bodyweightSeries(st);
+    var latest = M.latestBodyweight(st);
+    var advice = M.portionAdvice(st);
+    var t = advice.trend;
+    var nodes = [];
+
+    if (!series.length) {
+      nodes.push(el("div", { class: "card empty" }, [
+        icon("scale", 28),
+        el("p", { text: "No weigh-ins yet. Weigh yourself most mornings, under the same conditions — after the toilet, before eating or drinking." })
+      ]));
+      nodes.push(el("button", { class: "btn primary", type: "button", onclick: function () { weighInSheet(st, today); } },
+        [icon("plus", 16), " Log today's weight"]));
+      return screen({ title: "Body" }, nodes, "Body");
+    }
+
+    var todayEntry = series.filter(function (b) { return b.date === today; })[0];
+    nodes.push(el("div", { class: "card" }, [
+      el("div", { class: "rowb", style: "align-items:flex-end" }, [
+        el("div", {}, [
+          el("div", { class: "bignum" }, [String(latest.kg), el("span", { class: "unit", text: " kg" })]),
+          el("div", { class: "wn-dates", text: latest.date === today ? "this morning" : M.humanDate(latest.date) })
+        ]),
+        t.slopeKgPerWeek != null
+          ? el("div", { class: "delta " + trendTone(st, t.slopeKgPerWeek) }, [
+              icon(t.slopeKgPerWeek >= 0 ? "up" : "down", 14),
+              M.fmtSlope(t.slopeKgPerWeek)
+            ])
+          : null
+      ]),
+      weightChart(t),
+      el("p", { class: "hint", text: t.slopeKgPerWeek == null
+        ? "The line is your 7-day rolling average once there are enough weigh-ins."
+        : "Trend over " + t.spanDays + " days from " + t.readings + " weigh-ins (" + t.perWeek +
+          " a week). The line is the 7-day rolling average — single mornings bounce around too much to read." })
+    ]));
+
+    nodes.push(el("button", { class: "btn " + (todayEntry ? "ghost" : "primary"), type: "button",
+      onclick: function () { weighInSheet(st, today); } },
+      [icon(todayEntry ? "edit" : "plus", 16), todayEntry ? " Edit today (" + todayEntry.kg + " kg)" : " Log today's weight"]));
+
+    // the nudge
+    nodes.push(el("div", { class: "card advice tone-" + advice.tone }, [
+      el("div", { class: "advice-head" }, [
+        icon(advice.tone === "push" ? "check" : advice.tone === "back" ? "warn" : "info", 17),
+        el("div", { class: "sug-head", text: advice.headline })
+      ]),
+      el("p", { class: "sug-detail", text: advice.reason }),
+      el("p", { class: "hint", text: "Target: " + st.settings.bwTargetKgPerWeekLow + "–" +
+        st.settings.bwTargetKgPerWeekHigh + " kg/week. One change at a time, then two weeks before the next." })
+    ]));
+
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Recent weigh-ins" }),
+      el("div", { class: "exlist" }, series.slice().reverse().slice(0, 14).map(function (b) {
+        return el("button", { class: "exrow linkrow", type: "button",
+          onclick: function () { weighInSheet(st, b.date); } }, [
+          el("div", { class: "exrow-name", text: b.kg + " kg" }),
+          el("div", { class: "exrow-target", text: M.humanDate(b.date) + (b.note ? " · " + b.note : "") })
+        ]);
+      }))
+    ]));
+
+    return screen({ title: "Body" }, nodes, "Body");
+  }
+
+  function trendTone(st, slope) {
+    var s = st.settings;
+    if (slope >= s.bwTargetKgPerWeekLow && slope <= s.bwTargetKgPerWeekHigh) return "up";
+    return "neutral";
+  }
+
+  function weighInSheet(st, dateIso) {
+    var existing = M.bodyweightSeries(st).filter(function (b) { return b.date === dateIso; })[0];
+    var sh = App.ui.sheet(M.humanDate(dateIso));
+    var d = { kg: existing ? String(existing.kg) : "", note: existing ? (existing.note || "") : "" };
+    var input = el("input", { class: "num", inputmode: "decimal", value: d.kg, "aria-label": "weight in kg",
+      oninput: function (e) { d.kg = e.target.value; } });
+    sh.body.appendChild(el("div", { class: "lf" }, [
+      el("span", { class: "lflbl", text: "Weight (kg)" }), stepper(input, 0.1)
+    ]));
+    var note = el("input", { class: "noteinput", type: "text", value: d.note,
+      placeholder: "Note (optional) — e.g. after a big weekend",
+      oninput: function (e) { d.note = e.target.value; } });
+    sh.body.appendChild(note);
+    sh.body.appendChild(el("p", { class: "hint", text: "Same conditions each time gives a readable trend: first thing, after the toilet, before eating or drinking." }));
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var kg = parseFloat(d.kg);
+      if (isNaN(kg) || kg <= 0 || kg > 400) { App.ui.toast("Enter a weight in kg"); return; }
+      kg = Math.round(kg * 10) / 10;
+      if (existing) { existing.kg = kg; existing.note = d.note; }
+      else {
+        st.bodyweights.push({ entryId: M.uid("bw"), date: dateIso, kg: kg, note: d.note, createdAt: U.nowISO() });
+      }
+      S.save(); sh.close(); render();
+    } }, [existing ? "Save" : "Log " + (d.kg || "") + " kg"]));
+    if (existing) {
+      sh.body.appendChild(el("button", { class: "btn danger sm", type: "button", onclick: function () {
+        if (!confirm("Delete the weigh-in for " + M.humanDate(dateIso) + "?")) return;
+        st.bodyweights = st.bodyweights.filter(function (b) { return b.date !== dateIso; });
+        S.save(); sh.close(); render();
+      } }, ["Delete this entry"]));
+    }
+    sh.open();
+  }
+
+  // Scatter of every weigh-in with the rolling average drawn over it.
+  function weightChart(t) {
+    var series = t.series;
+    var W = 300, H = 130, PAD_L = 6, PAD_R = 6, PAD_T = 12, PAD_B = 18;
+    var vals = series.map(function (p) { return p.kg; });
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    if (max === min) { max = min + 0.5; min = min - 0.5; }
+    var pad = (max - min) * 0.15; min -= pad; max += pad;
+    var t0 = M.isoToDate(series[0].date).getTime();
+    var t1 = M.isoToDate(series[series.length - 1].date).getTime();
+    var span = Math.max(1, t1 - t0);
+    function x(dateIso) { return PAD_L + ((M.isoToDate(dateIso).getTime() - t0) / span) * (W - PAD_L - PAD_R); }
+    function y(v) { return PAD_T + (1 - (v - min) / (max - min)) * (H - PAD_T - PAD_B); }
+
+    var NS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "spark");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Body weight from " + series[0].kg + " to " + series[series.length - 1].kg + " kg");
+    function add(tag, attrs) {
+      var n = document.createElementNS(NS, tag);
+      Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+      svg.appendChild(n); return n;
+    }
+    [0, 0.5, 1].forEach(function (f) {
+      var yy = PAD_T + f * (H - PAD_T - PAD_B);
+      add("line", { class: "gridln", x1: PAD_L, x2: W - PAD_R, y1: yy, y2: yy });
+    });
+    // raw weigh-ins
+    series.forEach(function (p) { add("circle", { class: "scatter", cx: x(p.date), cy: y(p.kg), r: 2.4 }); });
+    // rolling average
+    var roll = t.rolling.filter(function (r) { return r.avg != null; });
+    if (roll.length > 1) {
+      add("polyline", { class: "trend", points: roll.map(function (r) { return x(r.date) + "," + y(r.avg); }).join(" ") });
+      var last = roll[roll.length - 1];
+      add("circle", { class: "dot", cx: x(last.date), cy: y(last.avg), r: 4 });
+    }
+    var wrap = el("div", { class: "chartwrap" }, [svg]);
+    wrap.appendChild(el("div", { class: "chartaxis" }, [
+      el("span", { text: M.shortDate(series[0].date) }),
+      el("span", { class: "chartmax", text: roll.length ? "avg " + roll[roll.length - 1].avg + " kg" : "" }),
+      el("span", { text: M.shortDate(series[series.length - 1].date) })
+    ]));
+    return wrap;
+  }
+
+  // ==================================================================
   // misc
   // ==================================================================
   function Placeholder(title, msg) {
@@ -1393,6 +1705,7 @@ window.App = window.App || {};
   App.views = {
     Today: Today, Session: Session, SessionDetail: SessionDetail,
     History: History, ExerciseDetail: ExerciseDetail,
+    Food: Food, Body: Body,
     More: More, Placeholder: Placeholder,
     MigrationRecovery: MigrationRecovery
   };

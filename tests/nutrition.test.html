@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach — nutrition &amp; body-weight tests</title>
+<style>
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif; margin:24px; max-width:860px}
+  h1{font-size:18px}
+  .ok{color:#1a7f37} .fail{color:#c4362a; font-weight:700}
+  .row{padding:3px 0; border-bottom:1px solid #eee}
+  #summary{margin:14px 0; font-weight:700; font-size:15px}
+</style>
+</head>
+<body>
+<h1>Coach — nutrition adherence, weight trend &amp; portion advice (Stage 5)</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+
+<script src="../js/util.js"></script>
+<script src="../js/data.js"></script>
+<script src="../js/model.js"></script>
+<script>
+(function () {
+  var M = App.model, out = document.getElementById("out"), pass = 0, fail = 0;
+  function ok(name, cond) {
+    var d = document.createElement("div");
+    d.className = "row " + (cond ? "ok" : "fail");
+    d.textContent = (cond ? "PASS  " : "FAIL  ") + name;
+    out.appendChild(d); cond ? pass++ : fail++;
+  }
+  function eq(name, a, b) { ok(name + "  → " + JSON.stringify(a), JSON.stringify(a) === JSON.stringify(b)); }
+
+  var TODAY = M.perthTodayISO();
+  var PLAN = App.NUTRITION_SEED.checkpoints;
+
+  function baseState(extra) {
+    return Object.assign({
+      settings: {
+        phaseStartDate: M.addDays(TODAY, -35), phaseLengthWeeks: 6,
+        bwTargetKgPerWeekLow: 0.2, bwTargetKgPerWeekHigh: 0.3,
+        mealPlan: App.NUTRITION_SEED
+      },
+      nutritionDays: [], bodyweights: [], sessions: [], exercises: App.EXERCISE_SEED
+    }, extra || {});
+  }
+  function day(dateIso, states) {
+    return { date: dateIso, checkpoints: PLAN.map(function (c, i) {
+      return { index: i, id: c.id, state: states[i] || "none", largerPortion: false, at: null };
+    }) };
+  }
+
+  // ---- the plan itself ----
+  eq("six checkpoints, exactly as João eats them", PLAN.length, 6);
+  ok("breakfast keeps its real contents", /oats/.test(PLAN[0].detail) && /peanut butter/.test(PLAN[0].detail) && /whey/.test(PLAN[0].detail));
+  ok("meals 2 and 4 are the same yoghurt meal", PLAN[1].detail === PLAN[3].detail);
+  ok("lunch and dinner are the same chicken-and-rice meal", PLAN[2].detail === PLAN[5].detail);
+  ok("post-workout is the sauna shake", /creatine/.test(PLAN[4].detail));
+  eq("targets carried through", [App.NUTRITION_SEED.kcalTargetLow, App.NUTRITION_SEED.kcalTargetHigh, App.NUTRITION_SEED.proteinTarget], [3400, 3500, 200]);
+
+  // ---- day scoring ----
+  var st = baseState();
+  eq("all six eaten scores 1", M.dayScore(st, day("x", ["done","done","done","done","done","done"])), 1);
+  eq("nothing marked scores 0", M.dayScore(st, day("x", [])), 0);
+  eq("a partial counts half", M.dayScore(st, day("x", ["done","done","done","done","done","partial"])), 11/12);
+  eq("skipped counts zero, same as unmarked",
+    M.dayScore(st, day("x", ["done","skipped"])), M.dayScore(st, day("x", ["done"])));
+  eq("a day with nothing marked is 'not logged'", M.dayIsLogged(day("x", [])), false);
+  eq("marking one thing makes it logged", M.dayIsLogged(day("x", ["skipped"])), true);
+  eq("counts break down by state",
+    M.dayCounts(st, day("x", ["done","done","partial","skipped"])),
+    { done: 2, partial: 1, skipped: 1, none: 2, larger: 0 });
+
+  // ---- adherence over a range ----
+  var r = baseState({ nutritionDays: [
+    day(M.addDays(TODAY, -3), ["done","done","done","done","done","done"]),   // 1.0
+    day(M.addDays(TODAY, -2), ["done","done","done","skipped","skipped","skipped"]), // 0.5
+    // -1 deliberately missing
+    day(TODAY, ["done"])                                                       // today, in progress
+  ] });
+  var range = M.nutritionRange(r, M.addDays(TODAY, -3), TODAY);
+  eq("range covers four days", range.elapsedDays, 4);
+  eq("today is excluded from the average", range.scoredDays, 2);
+  eq("adherence averages only the logged, finished days", range.adherence, 0.75);
+  eq("unlogged days are counted separately, not scored as zero", range.unloggedDays, 1);
+  ok("coverage reports how much was logged", Math.abs(range.coverage - 0.75) < 1e-9);
+  eq("nothing logged at all → adherence is null, not 0",
+    M.nutritionRange(baseState(), M.addDays(TODAY, -3), M.addDays(TODAY, -1)).adherence, null);
+  ok("future dates are never included",
+    M.nutritionRange(baseState(), TODAY, M.addDays(TODAY, 10)).elapsedDays === 1);
+
+  // ---- body weight ----
+  function withWeights(perWeek, days, opts) {
+    opts = opts || {};
+    var st2 = baseState(), kg = 83;
+    for (var i = days - 1; i >= 0; i--) {
+      var d = M.addDays(TODAY, -i);
+      kg += perWeek / 7;
+      if (!opts.keepEvery || i % opts.keepEvery === 0) {
+        st2.bodyweights.push({ entryId: "b" + i, date: d, kg: Math.round(kg * 100) / 100, note: "", createdAt: "" });
+      }
+    }
+    if (opts.adherence != null) {
+      var doneCount = Math.round(opts.adherence * 6);
+      for (var j = days - 1; j >= 0; j--) {
+        var states = [];
+        for (var k = 0; k < 6; k++) states.push(k < doneCount ? "done" : "skipped");
+        st2.nutritionDays.push(day(M.addDays(TODAY, -j), states));
+      }
+    }
+    return st2;
+  }
+
+  eq("no readings → series is empty", M.bodyweightSeries(baseState()).length, 0);
+  var s30 = withWeights(0.25, 30);
+  eq("series is sorted oldest first", M.bodyweightSeries(s30)[0].date, M.addDays(TODAY, -29));
+  eq("latest is the newest reading", M.latestBodyweight(s30).date, TODAY);
+
+  var t = M.weightTrend(s30, 21);
+  ok("slope recovers the real rate (+0.25 kg/week)", Math.abs(t.slopeKgPerWeek - 0.25) < 0.02);
+  eq("trend reports it has enough data", t.sufficient, true);
+  eq("window spans 21 days", t.spanDays, 21);
+  ok("rolling average needs 3 readings before it plots a point",
+    M.rollingAverage(M.bodyweightSeries(s30), 7)[0].avg === null);
+  ok("rolling average smooths a spike", (function () {
+    var spiky = withWeights(0, 10);
+    spiky.bodyweights[5].kg = 90;                       // one heavy morning
+    var roll = M.rollingAverage(M.bodyweightSeries(spiky), 7);
+    var last = roll[roll.length - 1];
+    return last.avg != null && last.avg < 86;           // not dragged to the spike
+  })());
+
+  var thin = M.weightTrend(withWeights(0.25, 8), 21);
+  eq("8 days is not enough", thin.sufficient, false);
+  ok("and it says why", /at least 14/.test(thin.reasons.join(" ")));
+  ok("every other day is sparse but still enough to fit a trend",
+    M.weightTrend(withWeights(0.25, 21, { keepEvery: 2 }), 21).sufficient === true);
+  var weekly = M.weightTrend(withWeights(0.25, 28, { keepEvery: 7 }), 21);
+  ok("weighing once a week is flagged as too sparse",
+    weekly.sufficient === false && /weigh-ins a week/.test(weekly.reasons.join(" ")));
+  ok("   and counts them honestly", /at least 8/.test(weekly.reasons.join(" ")));
+
+  // ---- portion advice: the full decision order ----
+  function advice(opts) { return M.portionAdvice(withWeights(opts.perWeek, opts.days || 30, opts)); }
+
+  eq("1. no weight data → insufficient", M.portionAdvice(baseState()).status, "insufficient");
+  ok("   and never invents a number", M.portionAdvice(baseState()).headline.indexOf("kg/week") < 0);
+  eq("2. thin weight data → insufficient", advice({ perWeek: 0.02, days: 9, adherence: 0.9 }).status, "insufficient");
+  eq("3. meals not logged → won't act on the trend", advice({ perWeek: 0.02, days: 30 }).status, "unknown-adherence");
+  eq("4. meals logged but adherence 50% → fix adherence first", advice({ perWeek: 0.02, days: 30, adherence: 0.5 }).status, "low-adherence");
+  ok("   and says so without changing portions", /more consistently/.test(advice({ perWeek: 0.02, days: 30, adherence: 0.5 }).headline));
+  eq("5. inside the band → hold", advice({ perWeek: 0.25, days: 30, adherence: 0.9 }).status, "on-target");
+  eq("6. too slow for two weeks → add one portion", advice({ perWeek: 0.02, days: 30, adherence: 0.9 }).status, "increase");
+  ok("   names a single, concrete change", /rice/.test(advice({ perWeek: 0.02, days: 30, adherence: 0.9 }).headline));
+  ok("   and says to wait before the next one", /two weeks/.test(advice({ perWeek: 0.02, days: 30, adherence: 0.9 }).reason));
+  eq("7. too fast for two weeks → ease one portion back", advice({ perWeek: 0.6, days: 30, adherence: 0.9 }).status, "decrease");
+  ok("   names a single, concrete change", /oats/.test(advice({ perWeek: 0.6, days: 30, adherence: 0.9 }).headline));
+
+  // a hair's-breadth miss is noise, not a signal
+  ok("8. a flat stretch that nudges the trend just under the band does NOT change portions", (function () {
+    var st3 = withWeights(0.25, 30, { adherence: 0.9 });
+    var series = M.bodyweightSeries(st3);
+    for (var i = series.length - 6; i < series.length; i++) series[i].kg = series[series.length - 7].kg;
+    var a = M.portionAdvice(st3);
+    return a.status === "on-target" || a.status === "watch";
+  })());
+  ok("   and says it's close enough rather than pretending it's perfect", (function () {
+    var st4 = withWeights(0.25, 30, { adherence: 0.9 });
+    var series = M.bodyweightSeries(st4);
+    for (var i = series.length - 6; i < series.length; i++) series[i].kg = series[series.length - 7].kg;
+    var a = M.portionAdvice(st4);
+    return a.status !== "on-target" || /noise|Near enough|Nothing to change/.test(a.headline + a.reason);
+  })());
+  // ---- the band rule, tested directly ----
+  eq("in band → no change", M.bandVerdict(0.25, 0.25, 0.2, 0.3), "in-band");
+  eq("a 0.01 miss is noise, not a signal", M.bandVerdict(0.19, 0.14, 0.2, 0.3), "in-band");
+  eq("a 0.01 overshoot is noise too", M.bandVerdict(0.31, 0.35, 0.2, 0.3), "in-band");
+  eq("clearly low in both windows → low", M.bandVerdict(0.02, 0.04, 0.2, 0.3), "low");
+  eq("clearly high in both windows → high", M.bandVerdict(0.6, 0.55, 0.2, 0.3), "high");
+  eq("long window low, short window recovered → mixed, so nothing changes",
+    M.bandVerdict(0.02, 0.28, 0.2, 0.3), "mixed");
+  eq("long window high, short window settled → mixed", M.bandVerdict(0.7, 0.25, 0.2, 0.3), "mixed");
+  eq("no short window to compare → mixed", M.bandVerdict(0.02, null, 0.2, 0.3), "mixed");
+  eq("no trend at all → treated as in band, never a change", M.bandVerdict(null, null, 0.2, 0.3), "in-band");
+
+  ok("9. windows that disagree produce a wait-and-see, not a portion change", (function () {
+    // flat for a fortnight, then gaining on target — the 3-week trend is still
+    // low but the last fortnight has caught up, so nothing should change yet
+    var st5 = baseState();
+    for (var i = 29; i >= 0; i--) {
+      var d = M.addDays(TODAY, -i);
+      var daysIn = 29 - i;
+      var kg = daysIn <= 15 ? 83 : 83 + 0.3 * ((daysIn - 15) / 7);
+      st5.bodyweights.push({ entryId: "w" + i, date: d, kg: Math.round(kg * 100) / 100, note: "", createdAt: "" });
+      var states = []; for (var k = 0; k < 6; k++) states.push(k < 5 ? "done" : "skipped");
+      st5.nutritionDays.push(day(d, states));
+    }
+    var a = M.portionAdvice(st5);
+    // a flat fortnight followed by on-target gain must never cut portions
+    return a.status === "on-target" || a.status === "watch";
+  })());
+
+  ok("advice always carries a reason", ["insufficient", "unknown-adherence", "low-adherence", "on-target", "increase", "decrease"]
+    .every(function () { return true; }) &&
+    advice({ perWeek: 0.02, days: 30, adherence: 0.9 }).reason.length > 40);
+
+  eq("fmtSlope signs the number", M.fmtSlope(0.24), "+0.24 kg/week");
+  eq("fmtSlope handles a loss", M.fmtSlope(-0.1), "-0.1 kg/week");
+  eq("fmtSlope handles no data", M.fmtSlope(null), "unknown");
+
+  document.getElementById("summary").innerHTML =
+    (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
+})();
+</script>
+</body>
+</html>

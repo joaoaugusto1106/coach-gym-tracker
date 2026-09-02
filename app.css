@@ -323,7 +323,9 @@ body.resting .content{padding-bottom:calc(158px + env(safe-area-inset-bottom))}
 .noteitem::before{content:"—"; position:absolute; left:0; color:var(--ink3)}
 .noteitem.dim{color:var(--ink2)}
 
-.linkrow{text-decoration:none; color:inherit; display:block}
+.linkrow{text-decoration:none; color:inherit; display:block;
+  background:none; border:0; width:100%; text-align:left; font:inherit; cursor:pointer}
+button.linkrow{padding:9px 0}
 .card.tintP{background:var(--prSoft)}
 .card.tintP .eyebrow{color:var(--pr)}
 
@@ -357,6 +359,55 @@ body.resting .content{padding-bottom:calc(158px + env(safe-area-inset-bottom))}
 .steps li{padding-left:2px}
 .kv{display:flex; flex-direction:column; gap:6px; background:var(--card2);
   border-radius:11px; padding:11px 12px; font-size:13.5px}
+
+/* ---- Stage 5: nutrition checklist + body weight ---- */
+.meallist{display:flex; flex-direction:column}
+.meal{display:flex; align-items:flex-start; gap:11px; padding:11px 0; border-top:1px solid var(--sep)}
+.meal:first-child{border-top:0}
+.mealbox{width:26px; height:26px; flex:none; margin-top:2px; border-radius:8px;
+  border:2px solid var(--ink3); background:none; color:#fff; cursor:pointer;
+  display:grid; place-items:center; padding:0}
+.mealbox.done{background:var(--accent); border-color:var(--accent)}
+.mealbox.partial{border-color:var(--accent)}
+.mealbox.partial .half{width:12px; height:12px; border-radius:3px; background:var(--accent); display:block}
+.mealbox.skipped{border-color:var(--ink3); color:var(--ink3)}
+.mealbody{flex:1; min-width:0; background:none; border:0; padding:0; text-align:left;
+  color:inherit; font:inherit; cursor:pointer}
+.mealtime{font-size:11.5px; font-weight:700; letter-spacing:.03em; color:var(--ink3);
+  display:flex; align-items:center; gap:6px; flex-wrap:wrap}
+.mealdetail{font-size:13.5px; line-height:1.4; margin-top:2px}
+.meal.done .mealdetail{color:var(--ink2)}
+.meal.skipped .mealdetail{color:var(--ink3); text-decoration:line-through}
+.portion-tag,.state-tag{font-size:9.5px; font-weight:800; letter-spacing:.04em; padding:2px 6px;
+  border-radius:6px; background:var(--accentSoft); color:var(--accent); text-transform:uppercase}
+.state-tag{background:var(--card2); color:var(--ink2)}
+.state-tag.skip{background:var(--warnSoft); color:var(--warn)}
+
+.weekstrip{display:flex; gap:7px; align-items:flex-end; height:74px}
+.wsday{flex:1; display:flex; flex-direction:column; align-items:center; gap:5px; height:100%}
+.wstrack{flex:1; width:100%; background:var(--sep); border-radius:5px; overflow:hidden;
+  display:flex; align-items:flex-end}
+.wsfill{width:100%; background:var(--accent); border-radius:5px}
+.wsfill.none{background:transparent; border:1px dashed var(--ink3); border-radius:5px; opacity:.5}
+.wslab{font-size:10px; font-weight:700; color:var(--ink3)}
+.wsday.sel .wslab{color:var(--accent)}
+
+.bignum{font-size:38px; font-weight:800; letter-spacing:-.02em; line-height:1;
+  font-variant-numeric:tabular-nums}
+.bignum .unit{font-size:15px; font-weight:600; color:var(--ink3)}
+.delta{display:flex; align-items:center; gap:4px; font-size:14px; font-weight:700;
+  font-variant-numeric:tabular-nums}
+.delta.up{color:var(--accent)}
+.delta.neutral{color:var(--ink2)}
+
+.card.advice{gap:8px}
+.advice-head{display:flex; align-items:flex-start; gap:9px}
+.advice-head .ic{margin-top:1px; flex:none}
+.card.advice.tone-push .advice-head .ic,.card.advice.tone-push .sug-head{color:var(--accent)}
+.card.advice.tone-back .advice-head .ic,.card.advice.tone-back .sug-head{color:var(--warn)}
+.card.advice.tone-hold .advice-head .ic{color:var(--pr)}
+.card.advice.tone-none .advice-head .ic{color:var(--ink3)}
+.card.advice .sug-detail{margin:0}
 
 .warn-text{color:var(--warn)}
 .sched-dot{color:var(--accent); font-size:8px; line-height:1; margin-right:5px; vertical-align:middle}
