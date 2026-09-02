@@ -1,5 +1,8 @@
 # Coach
 
+**[Read the walkthrough →](docs/walkthrough.html)** — every feature in plain language, the
+coaching rules, and exactly what does and doesn't sync between Mac, iPhone and Watch.
+
 A personal training / recovery / nutrition companion for João. Plain HTML/CSS/JS,
 no build step. Single user, offline, data stored locally in the browser.
 

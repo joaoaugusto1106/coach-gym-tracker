@@ -1,0 +1,375 @@
+<title>The Coach Manual</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --paper:#F5F3EE; --ink:#14171A; --ink2:#4A5157; --ink3:#7C858C;
+    --rule:#D9D4C8; --card:#FFFFFF;
+    --go:#1F7A4C; --goBg:#E6F1EA;
+    --hold:#8A5A00; --holdBg:#F7EEDC;
+    --stop:#A8321F; --stopBg:#F7E5E1;
+    --slab:#1B1F22;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#101315; --ink:#ECEFF1; --ink2:#A8B1B8; --ink3:#6E7880;
+      --rule:#262C31; --card:#171B1E;
+      --go:#4ECB7D; --goBg:#12271C;
+      --hold:#E0A83C; --holdBg:#2A2214;
+      --stop:#FF6B57; --stopBg:#2C1815;
+      --slab:#080A0B;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#101315; --ink:#ECEFF1; --ink2:#A8B1B8; --ink3:#6E7880;
+    --rule:#262C31; --card:#171B1E;
+    --go:#4ECB7D; --goBg:#12271C;
+    --hold:#E0A83C; --holdBg:#2A2214;
+    --stop:#FF6B57; --stopBg:#2C1815;
+    --slab:#080A0B;
+  }
+  *{box-sizing:border-box}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font:16px/1.62 "IBM Plex Sans",-apple-system,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:760px; margin:0 auto; padding:0 22px 100px}
+
+  /* ---- cover ---- */
+  header.cover{padding:72px 0 40px; border-bottom:3px double var(--rule); margin-bottom:44px}
+  .eyebrow{font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--go); margin:0 0 18px; font-weight:500}
+  h1{font-family:"Newsreader",Georgia,serif; font-weight:600; font-size:clamp(42px,9vw,72px);
+    line-height:1.02; letter-spacing:-.02em; margin:0 0 18px; text-wrap:balance}
+  .standfirst{font-family:"Newsreader",Georgia,serif; font-size:clamp(18px,2.6vw,21px);
+    line-height:1.5; color:var(--ink2); margin:0; max-width:34em; font-style:italic}
+
+  h2{font-family:"Newsreader",Georgia,serif; font-weight:600; font-size:clamp(27px,4.4vw,34px);
+    line-height:1.14; letter-spacing:-.015em; margin:60px 0 6px; text-wrap:balance}
+  h2 + .sub{color:var(--ink3); font-size:14.5px; margin:0 0 22px; font-family:"IBM Plex Mono",monospace;
+    letter-spacing:.02em}
+  h3{font-size:17px; font-weight:700; margin:32px 0 8px; letter-spacing:-.005em}
+  p{margin:0 0 15px; max-width:36em}
+  strong{font-weight:600}
+  a{color:var(--go)}
+  ul,ol{max-width:36em; padding-left:20px; margin:0 0 16px}
+  li{margin:7px 0}
+  code{font-family:"IBM Plex Mono",monospace; font-size:.88em; background:var(--card);
+    border:1px solid var(--rule); border-radius:4px; padding:1px 5px}
+
+  /* ---- the loop diagram ---- */
+  .loop{background:var(--slab); border-radius:14px; padding:26px 20px; margin:26px 0 30px;
+    overflow-x:auto}
+  .loop svg{display:block; margin:0 auto; max-width:100%; height:auto}
+  .loopcap{color:#8A949B; font-size:12.5px; text-align:center; margin:16px auto 0; max-width:30em;
+    font-family:"IBM Plex Mono",monospace; line-height:1.5}
+
+  /* ---- verdict cards ---- */
+  .verdicts{display:grid; gap:10px; margin:22px 0 26px}
+  .v{border-radius:11px; padding:15px 17px; border-left:4px solid}
+  .v-go{background:var(--goBg); border-color:var(--go)}
+  .v-hold{background:var(--holdBg); border-color:var(--hold)}
+  .v-stop{background:var(--stopBg); border-color:var(--stop)}
+  .v-name{font-weight:700; font-size:15.5px; margin:0 0 3px}
+  .v-go .v-name{color:var(--go)} .v-hold .v-name{color:var(--hold)} .v-stop .v-name{color:var(--stop)}
+  .v p{margin:0; font-size:14.5px; color:var(--ink2); max-width:none}
+
+  /* ---- screen callout ---- */
+  .screen{background:var(--card); border:1px solid var(--rule); border-radius:12px;
+    padding:16px 18px; margin:20px 0; font-family:"IBM Plex Mono",monospace; font-size:13.5px;
+    line-height:1.7}
+  .screen .big{font-family:"IBM Plex Sans",sans-serif; font-size:16px; font-weight:700; color:var(--go)}
+  .screen .muted{color:var(--ink3)}
+  .screen .today{display:block; margin-top:12px; padding-top:12px; border-top:1px solid var(--rule);
+    color:var(--hold)}
+
+  /* ---- device table ---- */
+  .tablewrap{overflow-x:auto; margin:22px 0 8px; border:1px solid var(--rule); border-radius:12px}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; min-width:460px}
+  th,td{text-align:left; padding:12px 15px; border-bottom:1px solid var(--rule); vertical-align:top}
+  th{font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--ink3); font-weight:500; background:var(--card)}
+  tr:last-child td{border-bottom:0}
+  td:first-child{font-weight:600; white-space:nowrap}
+  .yes{color:var(--go); font-weight:700}
+  .no{color:var(--stop); font-weight:700}
+
+  /* ---- pull quote ---- */
+  .pull{border-left:3px solid var(--go); padding:4px 0 4px 20px; margin:28px 0;
+    font-family:"Newsreader",Georgia,serif; font-size:20px; line-height:1.42; color:var(--ink);
+    max-width:32em}
+
+  /* ---- numbered steps ---- */
+  .steps{counter-reset:s; list-style:none; padding:0; margin:20px 0}
+  .steps li{counter-increment:s; position:relative; padding-left:44px; margin:0 0 18px}
+  .steps li::before{content:counter(s); position:absolute; left:0; top:1px;
+    width:28px; height:28px; border-radius:50%; background:var(--slab); color:var(--paper);
+    display:grid; place-items:center; font-family:"IBM Plex Mono",monospace; font-size:13px;
+    font-weight:500}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .steps li::before{color:#ECEFF1}}
+  :root[data-theme="dark"] .steps li::before{color:#ECEFF1}
+
+  /* ---- honest box ---- */
+  .honest{background:var(--card); border:1px solid var(--rule); border-radius:12px;
+    padding:20px 22px; margin:26px 0}
+  .honest h3{margin-top:0}
+  .honest p:last-child{margin-bottom:0}
+
+  .rule{height:1px; background:var(--rule); border:0; margin:54px 0}
+  footer{margin-top:70px; padding-top:26px; border-top:3px double var(--rule);
+    color:var(--ink3); font-size:13.5px}
+  footer p{max-width:none}
+</style>
+
+<div class="wrap">
+
+<header class="cover">
+  <p class="eyebrow">Everything it does, and why</p>
+  <h1>The Coach Manual</h1>
+  <p class="standfirst">A training log that tells you what to beat today, whether your body's up for it, and whether you're eating enough to grow. Built for one person, on one phone, with no accounts and no cloud.</p>
+</header>
+
+<h2>The one loop that matters</h2>
+<p class="sub">Everything else hangs off this</p>
+
+<p>Open the app. It already knows which day you're on and what you lifted last time. You log sets. That becomes next week's target. Recovery can soften today's number; nutrition and body weight steer the months. Nothing overwrites your training history — ever.</p>
+
+<div class="loop">
+<svg viewBox="0 0 640 300" role="img" aria-label="The training loop: Program feeds Today's target, which feeds Session logging, which feeds the result, which becomes the next target. Recovery softens today only. Nutrition and body weight steer portions.">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#4ECB7D"/>
+    </marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#E0A83C"/>
+    </marker>
+  </defs>
+  <g font-family="IBM Plex Mono, monospace" font-size="12.5" fill="#ECEFF1">
+    <!-- main cycle -->
+    <rect x="18"  y="60" width="128" height="52" rx="9" fill="none" stroke="#3A4248"/>
+    <text x="82"  y="83" text-anchor="middle">Program</text>
+    <text x="82"  y="99" text-anchor="middle" fill="#7C858C" font-size="10.5">what's due today</text>
+
+    <rect x="184" y="60" width="128" height="52" rx="9" fill="none" stroke="#3A4248"/>
+    <text x="248" y="83" text-anchor="middle">Target</text>
+    <text x="248" y="99" text-anchor="middle" fill="#7C858C" font-size="10.5">what to beat</text>
+
+    <rect x="350" y="60" width="128" height="52" rx="9" fill="none" stroke="#3A4248"/>
+    <text x="414" y="83" text-anchor="middle">Session</text>
+    <text x="414" y="99" text-anchor="middle" fill="#7C858C" font-size="10.5">what you did</text>
+
+    <rect x="500" y="60" width="122" height="52" rx="9" fill="none" stroke="#4ECB7D"/>
+    <text x="561" y="83" text-anchor="middle" fill="#4ECB7D">Result</text>
+    <text x="561" y="99" text-anchor="middle" fill="#7C858C" font-size="10.5">reps · RIR · PRs</text>
+
+    <line x1="146" y1="86" x2="178" y2="86" stroke="#4ECB7D" stroke-width="1.6" marker-end="url(#a)"/>
+    <line x1="312" y1="86" x2="344" y2="86" stroke="#4ECB7D" stroke-width="1.6" marker-end="url(#a)"/>
+    <line x1="478" y1="86" x2="494" y2="86" stroke="#4ECB7D" stroke-width="1.6" marker-end="url(#a)"/>
+
+    <!-- feedback arrow -->
+    <path d="M561 118 L561 150 L248 150 L248 118" fill="none" stroke="#4ECB7D" stroke-width="1.6"
+          stroke-dasharray="5 4" marker-end="url(#a)"/>
+    <text x="404" y="167" text-anchor="middle" fill="#4ECB7D" font-size="11">becomes next week's target</text>
+
+    <!-- recovery -->
+    <rect x="184" y="212" width="128" height="50" rx="9" fill="none" stroke="#E0A83C"/>
+    <text x="248" y="234" text-anchor="middle" fill="#E0A83C">Recovery</text>
+    <text x="248" y="250" text-anchor="middle" fill="#7C858C" font-size="10.5">today only</text>
+    <line x1="248" y1="208" x2="248" y2="124" stroke="#E0A83C" stroke-width="1.6"
+          stroke-dasharray="4 4" marker-end="url(#b)"/>
+    <text x="120" y="200" fill="#7C858C" font-size="10.5">softens, never replaces</text>
+
+    <!-- nutrition -->
+    <rect x="420" y="212" width="180" height="50" rx="9" fill="none" stroke="#3A4248"/>
+    <text x="510" y="234" text-anchor="middle">Food + body weight</text>
+    <text x="510" y="250" text-anchor="middle" fill="#7C858C" font-size="10.5">steers portions, monthly</text>
+
+    <!-- separation note -->
+    <text x="18" y="286" fill="#7C858C" font-size="10.5">Neither ever edits what you logged.</text>
+  </g>
+</svg>
+<p class="loopcap">Solid green is the training loop. Amber touches today and nothing else.</p>
+</div>
+
+<hr class="rule">
+
+<h2>Today</h2>
+<p class="sub">The screen you open at 4:30pm</p>
+
+<p>A coloured strip at the top says whether you're recovered. Under it, the day that's due — Push, Lower, Pull, or Arms &amp; Delts — with every exercise and a one-line verdict for each.</p>
+
+<p><strong>You never pick the day.</strong> The app rotates through the four in order and only moves on when you actually finish one. Miss a week and it's still waiting on the same day. If you want a different one, tap it — but that's a manual choice, and the app will ask before it counts.</p>
+
+<h3>The four verdicts</h3>
+<p>Every exercise gets one, worked out from your own logged reps and RIR:</p>
+
+<div class="verdicts">
+  <div class="v v-go">
+    <p class="v-name">Add load — 82.5 kg × 6+</p>
+    <p>Every working set hit the top of the rep range at or above your target RIR. Only then.</p>
+  </div>
+  <div class="v v-hold">
+    <p class="v-name">Hold 80 kg — beat 8 reps</p>
+    <p>You stayed in range but didn't top it. Add reps before load, with a concrete total to beat.</p>
+  </div>
+  <div class="v v-stop">
+    <p class="v-name">Hold 80 kg — consolidate</p>
+    <p>A set fell below the floor, or effort ran well past target. Repeat it cleanly first.</p>
+  </div>
+  <div class="v v-stop">
+    <p class="v-name">Try 77.5 kg — or cut a set</p>
+    <p>Under target <em>twice running at the same weight</em>. One bad session never drops your weight. Two does.</p>
+  </div>
+</div>
+
+<p>And when it doesn't know, it says so. Missing RIR or fewer sets than prescribed drops it to lower confidence and <strong>blocks "add load" entirely</strong>. No history at all, or a prescription that changed too much to compare, gives you no number and an honest sentence instead.</p>
+
+<div class="pull">One bad session never drops your weight. Two does.</div>
+
+<hr class="rule">
+
+<h2>A session</h2>
+<p class="sub">Two taps a set, one hand, mid-workout</p>
+
+<p>Open an exercise and last time's sets are already there, above the entry fields, before you've touched anything.</p>
+
+<div class="screen">
+<span class="muted">LAST TIME · 30 AUG&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;RIR</span><br>
+1&nbsp;&nbsp;80 kg × 9&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2<br>
+2&nbsp;&nbsp;80 kg × 9&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2<br>
+3&nbsp;&nbsp;80 kg × 9&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2<br>
+<span class="big">↑ Add load — 82.5 kg × 6+</span><br>
+<span class="muted">All 4 working sets reached 9 reps at RIR 2 or better.</span>
+<span class="today"><strong>TODAY</strong> · Recovery is below your normal<br>
+Consider repeating 80 kg instead of adding today, and stopping a rep short. The target above is unchanged.</span>
+</div>
+
+<ul>
+  <li><strong>Weight and reps</strong> pre-fill from last time. Tap the number to type, or use −/＋ — which step in <em>your</em> increment, 2.5 kg on a bar, 2 kg on dumbbells, whatever you set.</li>
+  <li><strong>RIR</strong> is one tap on a five-way control.</li>
+  <li><strong>Repeat</strong> logs the same set again in a single tap. That's the commonest action, so it's one tap.</li>
+  <li><strong>Rest timer</strong> starts by itself, counts down, then counts up in green so you can see what you actually rested.</li>
+  <li><strong>Swap</strong> if a machine's taken. Alternatives are grouped by movement, but each keeps its own weights and PRs — the app will never compare your machine press to your barbell press.</li>
+  <li><strong>Tap the exercise name</strong> for a form photo, plate maths, your load increment, and a note.</li>
+  <li><strong>Warm-up and drop sets</strong> can be logged and are excluded from everything — no fake PRs, no skewed suggestions.</li>
+</ul>
+
+<p>It saves after every single set. Force-quit mid-workout, drop the phone, run out of battery — reopen and Today offers <em>"Resume draft."</em> Nothing is lost.</p>
+
+<h3>PRs</h3>
+<p>Three kinds, detected automatically: <strong>heaviest ever</strong>, <strong>most reps at a weight</strong>, and <strong>best estimated 1RM</strong> (Epley). Equalling a record isn't a record. Warm-ups never count. A quiet badge on the set, the full list when you save.</p>
+
+<h3>Finishing</h3>
+<p>It shows what you logged, flags anything untouched without blocking you, and lets you finish normally or as partial. Finish a scheduled day and the rotation moves on. Anything else — a manual day, a partial — and it <em>asks</em> first. There's an Undo either way.</p>
+
+<hr class="rule">
+
+<h2>Recovery</h2>
+<p class="sub">A nudge. Never a command.</p>
+
+<p>Ten seconds: energy, soreness, how physical work was, and a pain-or-illness flag. Optionally HRV, resting heart rate and sleep on top.</p>
+
+<p><strong>Everything is measured against you.</strong> Not a population average — your own rolling median over 30 days, using the middle value and your usual spread, so one terrible night can't move the bar it's being judged against. If you're always a bit sore, being a bit sore is your normal and doesn't flag. Under five check-ins it says it's still learning.</p>
+
+<div class="verdicts">
+  <div class="v v-go"><p class="v-name">Green</p><p>Nothing unusual for you. Train to your targets.</p></div>
+  <div class="v v-hold"><p class="v-name">Amber</p><p>Two or more signals below your normal, or a clearly rough day. Suggestions soften.</p></div>
+  <div class="v v-stop"><p class="v-name">Red</p><p><strong>Only</strong> a pain or illness flag you raised yourself.</p></div>
+</div>
+
+<p>No wearable number produces red on its own. Feed it an HRV of 12 against a baseline of 50 and it returns amber. That's a deliberate rule with a test guarding it.</p>
+
+<p>The adjustment sits <em>underneath</em> your target, never on top of it. It never cancels a session, never edits your program, never names a condition. On a red day: <em>"Your target above is unchanged. Whether to train it, train around it, or skip today is yours to decide."</em></p>
+
+<hr class="rule">
+
+<h2>Food and body weight</h2>
+<p class="sub">Six checkpoints, not a calorie database</p>
+
+<p>Your six actual meals, exactly as you eat them. Tap the circle to mark one eaten; tap the meal for <em>ate some</em>, <em>skipped</em>, or a bigger portion. Today is shown live but stays out of the weekly average until it's over, and days you never logged are counted separately rather than scored as zero.</p>
+
+<p>Weigh-ins get plotted with a 7-day rolling average over the top, because single mornings bounce too much to read. The trend is fitted over 21 days.</p>
+
+<h3>When it will change your portions</h3>
+<p>Four gates, in order. It stops at the first one it can't answer:</p>
+
+<ol class="steps">
+  <li><strong>Enough weigh-ins?</strong> 14+ days, 8+ readings, roughly four a week. Otherwise it says exactly what's missing and stops. It never invents a number.</li>
+  <li><strong>Enough meals logged to judge the plan?</strong> If not, it won't act on the trend at all.</li>
+  <li><strong>Is adherence 80%+?</strong> Below that: <em>"Follow the current plan more consistently first — changing portions now would be guessing."</em></li>
+  <li><strong>Is the trend clearly and consistently off?</strong> It has to miss the 0.2–0.3 kg/week band by more than 0.05, <em>and</em> the three-week and two-week views have to agree.</li>
+</ol>
+
+<p>Only then does it suggest <strong>one</strong> change — about 50 g more rice at dinner, or half a scoop less oats — and tells you to wait two weeks before the next.</p>
+
+<hr class="rule">
+
+<h2>History</h2>
+<p class="sub">Sessions · Week · Exercises</p>
+
+<p><strong>Sessions</strong> — everything, newest first, filterable by day, phase, program version or exercise. Dividers mark where a phase or a program version began.</p>
+
+<p><strong>Week</strong> — sessions, working sets, completed vs planned, and working sets per muscle group with last week's change. That last number is labelled as what it is: a tracking count, not a claim that every set does the same thing. Plus your PRs, the biggest strength moves, at most three plain observations, and a card called <em>What the app couldn't see</em> listing the sets without RIR, the days you didn't log, and the weigh-ins you missed.</p>
+
+<p><strong>Exercises</strong> — every lift you've logged, with its records and a progress chart of estimated 1RM or top set over time.</p>
+
+<hr class="rule">
+
+<h2>Mac, iPhone and Watch</h2>
+<p class="sub">The honest version</p>
+
+<p>This is the part most apps lie about, so here it is plainly.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Question</th><th>Answer</th></tr></thead>
+  <tbody>
+    <tr><td>Does it sync?</td><td><span class="no">No.</span> Each browser keeps its own copy. Installing on two devices gives you two separate datasets, not one shared one.</td></tr>
+    <tr><td>Where's my data?</td><td>In the browser on the device you logged it on. Not on a server. Nobody else can see it — including me.</td></tr>
+    <tr><td>Moving it across</td><td>Export a backup file, get it to the other device, import it. More → Device walks you through it.</td></tr>
+    <tr><td>Two devices at once?</td><td>Pick one to log on and set it in More → Device. The other then warns you at the top of Today <em>before</em> you type anything into it.</td></tr>
+    <tr><td>Does it work offline?</td><td><span class="yes">Yes.</span> Once installed to the home screen, the whole app opens and logs with no signal.</td></tr>
+    <tr><td>Apple Watch?</td><td><span class="no">No app.</span> A finished session can be pushed into Health as a workout, which is a different thing.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Real per-set sync between devices would need a native app and an account. It isn't built, and it isn't pretended.</p>
+
+<h3>Apple Health</h3>
+<p>A web app can't talk to HealthKit directly, so a small Shortcut bridges it. Two one-off builds, instructions in the project.</p>
+<ul>
+  <li><strong>Writing</strong> — finish a session, tap <em>Save to Apple Health</em>. It sends a summary: workout type, start, duration. <strong>Your sets, weights, RIR and notes never leave the app.</strong> The app can't see what Shortcuts did afterwards, so it asks <em>"Did it save?"</em> rather than assuming.</li>
+  <li><strong>Reading</strong> — a second Shortcut fetches HRV, resting heart rate and sleep; you paste one line back in. Or just type the three numbers yourself in fifteen seconds, which may well be faster.</li>
+</ul>
+
+<hr class="rule">
+
+<h2>If something goes wrong</h2>
+<p class="sub">Your data is the thing that matters</p>
+
+<ul>
+  <li><strong>Autosaves</strong> after every set, with the time shown. If a save ever fails, a red bar appears and stays until it works.</li>
+  <li><strong>Last-known-good copy</strong> written before every save. Corrupt data gets recovered from it on the next launch.</li>
+  <li><strong>Backups</strong> — five rolling, one automatic per week, plus a snapshot before every risky operation. Restorable from More.</li>
+  <li><strong>Upgrades</strong> are validated. If one can't be done safely, your original data is left untouched and the app shows a recovery screen offering to export it. It never wipes you because the format changed.</li>
+  <li><strong>Imports</strong> preview the counts and warn about duplicates before replacing anything, and snapshot what you have first.</li>
+</ul>
+
+<p>Proven end to end: 106 sessions exported, everything deleted, backup imported, app reloaded — all 106 sessions and all 580 PR flags recovered exactly.</p>
+
+<div class="honest">
+  <h3>What isn't confirmed yet</h3>
+  <p>Two things need your iPhone, and until then they're listed as unknown rather than assumed:</p>
+  <p><strong>1.</strong> Whether Shortcuts-logged workouts count toward your Activity rings, or show in Fitness and on the Watch.</p>
+  <p><strong>2.</strong> Whether the Health <em>read</em> exchange is reliable and quick enough to keep. If it's slower than typing three numbers, the right answer is to delete it — the recovery feature was built to work without it.</p>
+</div>
+
+<footer>
+  <p><strong>Coach</strong> — plain HTML, CSS and JavaScript. No build step, no framework, no accounts, no server, no tracking. 493 automated tests across nine suites.</p>
+  <p>Exercise photos from free-exercise-db, public domain. Not affiliated with Apple.</p>
+</footer>
+
+</div>
