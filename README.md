@@ -94,6 +94,7 @@ read, write or clear. Clearing the cache re-downloads the app; it never loses a 
 | `assets/` | Generated app icons — rebuild with `tools/make-icons.py` |
 | `tools/dev-server.py` | Local server with caching disabled and correct MIME types |
 | `.github/workflows/deploy-pages.yml` | Publishes the repository root to GitHub Pages on every push to `main` |
+| `docs/on-device-test-plan.md` | The iPhone-only checks: install, offline, both Health bridges, and the decision rules |
 
 Script and stylesheet URLs carry no version query: the service worker's cache name is the
 version. Bump `VERSION` in `sw.js` to ship an update; the dev server disables caching so
@@ -346,6 +347,10 @@ Health app in about fifteen seconds, and the check-in works with none of them.
   right answer is a small native companion instead, or deleting it and keeping manual entry.
 
 Both need the actual iPhone. Until then they stay listed here as unknown rather than assumed.
+
+**[`docs/on-device-test-plan.md`](docs/on-device-test-plan.md) is the sequence that settles
+them** — install, prove offline, build each Shortcut, then a week of timed round-trips with
+the tables to fill in and the rule for what each failure means.
 
 ## Reference photos and plate maths
 
