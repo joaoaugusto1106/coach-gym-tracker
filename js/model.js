@@ -1095,8 +1095,9 @@ window.App = window.App || {};
       var why = signals.filter(function (s) { return s.low; }).map(function (s) {
         // the subjective score is an internal number — describe it, don't show it
         if (s.key === "subjective") return s.text;
-        if (s.comparison) return s.label.toLowerCase() + " " + s.text + " against your usual " + s.comparison.median;
-        return s.label.toLowerCase() + " " + s.text;
+        // keep the label as written — lowercasing turns "HRV" into "hrv"
+        if (s.comparison) return s.label + " " + s.text + " against your usual " + round2(s.comparison.median);
+        return s.label + " " + s.text;
       });
       if (!why.length && subjective) why = [subjective.text];
       return {

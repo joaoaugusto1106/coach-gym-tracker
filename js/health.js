@@ -110,9 +110,185 @@ window.App = window.App || {};
     });
   }
 
+  /* ---------------------------------------------------------------- read path
+     Getting numbers OUT of Health is harder than putting a workout in: the
+     Shortcut has to hand a result back to a web app, and iOS gives no reliable
+     return channel into an installed PWA.
+
+     So the exchange is deliberately dumb: the Shortcut copies a line of JSON to
+     the clipboard, and you paste it in. One extra tap, no permissions, works
+     identically in Safari and in the installed app. Auto-reading the clipboard
+     is offered where the browser allows it, but is never required.
+
+     Everything below assumes the input is garbage until proven otherwise. */
+
+  var RANGES = {
+    hrvMs: { min: 5, max: 300, label: "HRV", unit: "ms" },
+    restingHrBpm: { min: 30, max: 120, label: "Resting HR", unit: "bpm" },
+    sleepHours: { min: 0, max: 16, label: "Sleep", unit: "h" }
+  };
+
+  function looksLikeMinutes(key, v) {
+    // 444 for sleep is minutes, not hours — a very easy Shortcut mistake
+    return key === "sleepHours" && v > RANGES.sleepHours.max && v / 60 <= RANGES.sleepHours.max;
+  }
+
+  function readNumber(key, raw, warnings) {
+    if (raw == null || raw === "") return null;
+    var v = typeof raw === "number" ? raw : parseFloat(String(raw).replace(",", "."));
+    if (!isFinite(v)) {
+      warnings.push(RANGES[key].label + ": “" + raw + "” isn't a number — ignored.");
+      return null;
+    }
+    if (looksLikeMinutes(key, v)) {
+      warnings.push("Sleep came through as " + v + ", which looks like minutes. " +
+        "Divide by 60 in the Shortcut so it sends hours. Ignored for now.");
+      return null;
+    }
+    var r = RANGES[key];
+    if (v < r.min || v > r.max) {
+      warnings.push(r.label + " of " + v + " " + r.unit + " is outside anything plausible (" +
+        r.min + "–" + r.max + ") — ignored.");
+      return null;
+    }
+    return Math.round(v * 100) / 100;
+  }
+
+  function readDate(raw, warnings) {
+    if (!raw) return null;
+    var s = String(raw).trim();
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);          // ISO date or datetime
+    if (m) return m[0].slice(0, 10);
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return U.perthDateISO(d);
+    warnings.push("Couldn't read the date “" + raw + "” — the Shortcut should send it as YYYY-MM-DD.");
+    return null;
+  }
+
+  function readOneDay(obj, warnings) {
+    var date = readDate(obj.date, warnings) || U.perthDateISO();
+    if (date > U.perthDateISO()) {
+      warnings.push("A reading is dated in the future (" + date + ") — check the Shortcut's date step.");
+      return null;
+    }
+    var row = {
+      date: date,
+      hrvMs: readNumber("hrvMs", obj.hrvMs != null ? obj.hrvMs : obj.hrv, warnings),
+      restingHrBpm: readNumber("restingHrBpm", obj.restingHrBpm != null ? obj.restingHrBpm : obj.restingHr, warnings),
+      sleepHours: readNumber("sleepHours", obj.sleepHours != null ? obj.sleepHours : obj.sleep, warnings)
+    };
+    if (row.hrvMs == null && row.restingHrBpm == null && row.sleepHours == null) return null;
+    return row;
+  }
+
+  /* Parse whatever the Shortcut produced.
+     Returns { ok, days:[...], warnings:[...], fatal } — partial data is a
+     success, because three metrics with one missing is still worth having. */
+  function parseReadPayload(text) {
+    var warnings = [];
+    if (!text || !String(text).trim()) {
+      return { ok: false, fatal: "Nothing pasted.", days: [], warnings: warnings };
+    }
+    var raw = String(text).trim();
+    // tolerate a Shortcut that wrapped the JSON in quotes or stray whitespace
+    if (raw.charAt(0) === '"' && raw.charAt(raw.length - 1) === '"') {
+      try { raw = JSON.parse(raw); } catch (e) { /* leave as-is */ }
+    }
+    var data;
+    try { data = typeof raw === "string" ? JSON.parse(raw) : raw; }
+    catch (e) {
+      return {
+        ok: false, days: [], warnings: warnings,
+        fatal: "That isn't valid JSON. Copy the whole line the Shortcut produced, including the { and }."
+      };
+    }
+    if (data && data.error) {
+      return {
+        ok: false, days: [], warnings: warnings,
+        fatal: data.error === "denied"
+          ? "The Shortcut says Health denied access. Open Health → Sharing → Apps → Shortcuts and allow it to read HRV, resting heart rate and sleep."
+          : "The Shortcut reported: " + data.error
+      };
+    }
+
+    var list = [];
+    if (Array.isArray(data)) list = data;
+    else if (data && Array.isArray(data.days)) list = data.days;
+    else if (data && typeof data === "object") list = [data];
+    else return { ok: false, days: [], warnings: warnings, fatal: "Didn't recognise that shape." };
+
+    var days = [];
+    list.forEach(function (o) {
+      if (!o || typeof o !== "object") return;
+      var row = readOneDay(o, warnings);
+      if (row) days.push(row);
+    });
+
+    if (!days.length) {
+      return {
+        ok: false, days: [], warnings: warnings,
+        fatal: warnings.length
+          ? "Nothing usable came through — see the notes below."
+          : "The Shortcut returned no HRV, resting heart rate or sleep. That usually means Health has no data for that day, or permission was never granted."
+      };
+    }
+    // newest first, one row per date
+    var seen = {};
+    days = days.sort(function (a, b) { return a.date < b.date ? 1 : -1; })
+      .filter(function (d) { if (seen[d.date]) return false; seen[d.date] = 1; return true; });
+    return { ok: true, days: days, warnings: warnings, fatal: null };
+  }
+
+  // Merge parsed rows into state. Existing days are updated field-by-field, so
+  // importing sleep-only doesn't wipe an HRV figure you already had.
+  function applyReadings(state, days, source) {
+    var added = 0, updated = 0;
+    state.recoveryReadings = state.recoveryReadings || [];
+    days.forEach(function (d) {
+      var existing = null;
+      for (var i = 0; i < state.recoveryReadings.length; i++) {
+        if (state.recoveryReadings[i].date === d.date) { existing = state.recoveryReadings[i]; break; }
+      }
+      if (existing) {
+        ["hrvMs", "restingHrBpm", "sleepHours"].forEach(function (k) {
+          if (d[k] != null) existing[k] = d[k];
+        });
+        existing.source = source || "shortcut";
+        existing.importedAt = U.nowISO();
+        updated++;
+      } else {
+        state.recoveryReadings.push({
+          date: d.date, hrvMs: d.hrvMs, restingHrBpm: d.restingHrBpm, sleepHours: d.sleepHours,
+          source: source || "shortcut", importedAt: U.nowISO()
+        });
+        added++;
+      }
+    });
+    state.recoveryReadings.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    return { added: added, updated: updated };
+  }
+
+  function readShortcutURL(shortcutName) {
+    return "shortcuts://run-shortcut?name=" + encodeURIComponent(shortcutName || "Read Recovery");
+  }
+
+  function canReadClipboard() {
+    return !!(navigator.clipboard && navigator.clipboard.readText);
+  }
+  function readClipboard() {
+    if (!canReadClipboard()) return Promise.reject(new Error("unsupported"));
+    return navigator.clipboard.readText();
+  }
+
   App.health = {
     MIN_MINUTES: MIN_MINUTES,
     MAX_MINUTES: MAX_MINUTES,
+    RANGES: RANGES,
+    parseReadPayload: parseReadPayload,
+    applyReadings: applyReadings,
+    readShortcutURL: readShortcutURL,
+    canReadClipboard: canReadClipboard,
+    readClipboard: readClipboard,
     suggestedMinutes: suggestedMinutes,
     wasClamped: wasClamped,
     workingSetsOf: workingSetsOf,

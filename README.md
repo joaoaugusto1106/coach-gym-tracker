@@ -289,11 +289,34 @@ More → Apple Health has the Shortcut name (it must match exactly) and **Test t
 which sends a clearly-labelled 1-minute workout so you can prove the whole path end to end
 without polluting your log.
 
+### Reading HRV, resting heart rate and sleep
+
+Body → Recovery → **Import from Health**. A second Shortcut reads the three numbers and
+copies one line of JSON; you paste it in. See
+[`shortcuts/read-recovery.md`](shortcuts/read-recovery.md).
+
+The paste step is deliberate. Having the Shortcut open a URL back into Coach sometimes lands
+in Safari rather than the installed app, which has separate storage — that looks exactly like
+your data vanishing. A paste box always works in both.
+
+The parser assumes the input is garbage until proven otherwise: sleep of `444` is rejected as
+minutes with the exact fix, an HRV of `2000` is dropped while the other numbers survive, a
+future date is refused, and a denied-permission payload says where to fix it. Nothing is ever
+silently converted. Partial data imports fine — a sleep-only import won't wipe an HRV figure
+you already had.
+
+**You don't need any of this.** The same screen lets you type the three numbers from the
+Health app in about fifteen seconds, and the check-in works with none of them.
+
 ### Not verified
 
-Whether Shortcuts-logged workouts count toward **Activity rings** or show in **Fitness** and
-on the **Watch** has not been tested. That depends on how iOS treats them on your setup. Log
-one, look, and tell me — then this section gets the answer instead of a guess.
+- Whether Shortcuts-logged workouts count toward **Activity rings** or show in **Fitness** and
+  on the **Watch**. That depends on how iOS treats them on your setup.
+- Whether the read exchange is reliable and quick enough to keep. `shortcuts/read-recovery.md`
+  lists the five questions that settle it, and what each failure means — including when the
+  right answer is a small native companion instead, or deleting it and keeping manual entry.
+
+Both need the actual iPhone. Until then they stay listed here as unknown rather than assumed.
 
 ## Devices
 
@@ -327,5 +350,6 @@ you log here stays on this device — it won't reach it."*
    readiness, and a today-adjustment that never overwrites the base target
 7. ✅ Apple Health write bridge — Shortcut hand-off, duration control, honest
    confirmation, bridge test, troubleshooting (needs on-device verification)
-8. Apple Health read experiment
+8. ✅ Apple Health read experiment — clipboard exchange, defensive parser, manual
+   entry fallback, and an explicit decision rule (needs a week on-device to settle)
 9. Refinement — curated exercise photos, plate maths, accessibility, final polish

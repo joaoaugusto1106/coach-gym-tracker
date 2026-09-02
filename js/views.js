@@ -1366,8 +1366,16 @@ window.App = window.App || {};
         var v = prompt("Name of the Shortcut that writes workouts to Health. It must match exactly, including capitals.", set.healthWriteShortcutName);
         if (v != null && v.trim()) { set.healthWriteShortcutName = v.trim(); S.save(); render(); }
       } }, ["Change the Shortcut name"]),
-      el("button", { class: "btn ghost sm", type: "button", onclick: function () { healthTestSheet(st); } }, ["Test the bridge"]),
-      el("p", { class: "hint", text: "Health gets a summary — type, start, duration. Your sets and weights stay in this app. Building the Shortcut is a one-off: see shortcuts/log-strength-workout.md in the project." })
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Read Shortcut" }),
+        el("b", { text: set.healthReadShortcutName })
+      ]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt("Name of the Shortcut that reads HRV, resting heart rate and sleep from Health.", set.healthReadShortcutName);
+        if (v != null && v.trim()) { set.healthReadShortcutName = v.trim(); S.save(); render(); }
+      } }, ["Change the read Shortcut name"]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () { healthTestSheet(st); } }, ["Test the write bridge"]),
+      el("p", { class: "hint", text: "Writing: Health gets a summary — type, start, duration. Your sets and weights stay in this app. Reading: import HRV, resting heart rate and sleep from Body → Recovery. Both Shortcuts are one-off builds — see the shortcuts folder in the project." })
     ]));
 
     // ---- install / offline -----------------------------------------
@@ -1411,7 +1419,7 @@ window.App = window.App || {};
       el("button", { class: "btn ghost sm", type: "button", onclick: moveToPhoneGuide }, ["Move my data to another device"])
     ]));
 
-    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 7 · schema v" + st.schemaVersion +
+    nodes.push(el("p", { class: "hint center", text: "Coach · Stage 8 · schema v" + st.schemaVersion +
       " · app " + S.appVersion + (env.swState.version ? " · offline " + env.swState.version : "") }));
     return screen({ title: "More" }, nodes, "More");
   }
@@ -1839,7 +1847,28 @@ window.App = window.App || {};
             base.restingHrBpm.n ? baselineRow("Resting HR", base.restingHrBpm, " bpm") : null,
             base.sleepHours.n ? baselineRow("Sleep", base.sleepHours, " h") : null
           ])
-        : el("p", { class: "hint", text: "HRV, resting heart rate and sleep aren't connected yet — that's the Apple Health bridge in Stage 8. Everything here works without them." })
+        : el("p", { class: "hint", text: "No HRV, resting heart rate or sleep yet. Add them below if you want them — the check-in works fine on its own." })
+    ]));
+
+    // ---- HRV / resting HR / sleep ----
+    var todayReading = M.recoveryReadingFor(st, today);
+    var readingCount = (st.recoveryReadings || []).length;
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "HRV, resting heart rate & sleep" }),
+      todayReading
+        ? el("div", { class: "siglist" }, [
+            metricRow("HRV", todayReading.hrvMs, " ms"),
+            metricRow("Resting HR", todayReading.restingHrBpm, " bpm"),
+            metricRow("Sleep", todayReading.sleepHours, " h")
+          ])
+        : el("p", { class: "hint", text: "Nothing for today yet." }),
+      el("p", { class: "hint", text: readingCount
+        ? readingCount + " day" + (readingCount === 1 ? "" : "s") + " recorded. These feed the same personal baselines as the check-in."
+        : "Optional. Type them from the Health app, or use a Shortcut to fetch them." }),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () { readingSheet(st, today); } },
+        [icon(todayReading ? "edit" : "plus", 16), todayReading ? " Edit today's numbers" : " Enter today's numbers"]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () { healthImportSheet(st); } },
+        [icon("heart", 16), " Import from Health"])
     ]));
 
     // recent check-ins
@@ -1864,6 +1893,128 @@ window.App = window.App || {};
     }
 
     nodes.push(el("p", { class: "hint", text: "Recovery never cancels a session, changes your program, or names a condition. It softens today's suggestion and tells you why. You decide." }));
+  }
+
+  function metricRow(label, value, unit) {
+    return el("div", { class: "sigrow" }, [
+      el("span", { class: "siglabel", text: label }),
+      el("span", { class: "sigval", text: value == null ? "—" : value + unit })
+    ]);
+  }
+
+  // Typed by hand from the Health app. Works with no Shortcut at all.
+  /* The read bridge. The Shortcut copies a line of JSON to the clipboard and
+     you paste it here. Deliberately not automatic: iOS gives no reliable way
+     to hand data back into an installed PWA, and a paste box that always works
+     beats a return trip that sometimes lands in the wrong browser. */
+  function healthImportSheet(st) {
+    var H = App.health;
+    var name = st.settings.healthReadShortcutName || "Read Recovery";
+    var sh = App.ui.sheet("Import from Health");
+
+    sh.body.appendChild(el("p", { class: "hint", text:
+      "Run your “" + name + "” Shortcut — it reads HRV, resting heart rate and sleep from Health and copies one line of JSON. Come back here and paste it." }));
+
+    var box = el("textarea", { class: "pastebox", rows: "3", placeholder: '{"v":1,"date":"…","hrvMs":48,"restingHrBpm":52,"sleepHours":7.4}' });
+    var result = el("div", { class: "importresult" });
+
+    function preview(text) {
+      result.innerHTML = "";
+      var res = H.parseReadPayload(text);
+      if (!res.ok) {
+        result.appendChild(el("div", { class: "notice" }, [icon("warn", 16), el("span", { text: res.fatal })]));
+        res.warnings.forEach(function (w) { result.appendChild(el("p", { class: "hint warn-text", text: "⚠ " + w })); });
+        return null;
+      }
+      result.appendChild(el("div", { class: "kv" }, res.days.slice(0, 5).map(function (d) {
+        var bits = [];
+        if (d.hrvMs != null) bits.push("HRV " + d.hrvMs + " ms");
+        if (d.restingHrBpm != null) bits.push("RHR " + d.restingHrBpm + " bpm");
+        if (d.sleepHours != null) bits.push("sleep " + d.sleepHours + " h");
+        return el("div", { class: "rowb" }, [
+          el("span", { text: M.humanDate(d.date) }),
+          el("b", { text: bits.join(" · ") })
+        ]);
+      })));
+      res.warnings.forEach(function (w) { result.appendChild(el("p", { class: "hint warn-text", text: "⚠ " + w })); });
+      return res;
+    }
+
+    box.addEventListener("input", function () { preview(box.value); });
+
+    if (H.isSupported()) {
+      sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        H.open(H.readShortcutURL(name));
+      } }, [icon("heart", 16), " Run the “" + name + "” Shortcut"]));
+    } else {
+      sh.body.appendChild(el("div", { class: "notice" }, [
+        icon("warn", 16),
+        el("span", { text: "Shortcuts only exists on Apple devices — on this one, paste the JSON in by hand." })
+      ]));
+    }
+
+    sh.body.appendChild(box);
+    if (H.canReadClipboard()) {
+      sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        H.readClipboard().then(function (t) { box.value = t; preview(t); })
+          ["catch"](function () { App.ui.toast("Couldn't read the clipboard — paste it in instead"); });
+      } }, ["Paste from clipboard"]));
+    }
+    sh.body.appendChild(result);
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var res = preview(box.value);
+      if (!res) return;
+      var counts = H.applyReadings(st, res.days, "shortcut");
+      S.save(); sh.close(); render();
+      App.ui.toast(counts.added + " day" + (counts.added === 1 ? "" : "s") + " added" +
+        (counts.updated ? ", " + counts.updated + " updated" : ""));
+    } }, ["Import"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Cancel"]));
+    sh.open();
+  }
+
+  function readingSheet(st, dateIso) {
+    var existing = M.recoveryReadingFor(st, dateIso);
+    var d = {
+      hrvMs: existing && existing.hrvMs != null ? String(existing.hrvMs) : "",
+      restingHrBpm: existing && existing.restingHrBpm != null ? String(existing.restingHrBpm) : "",
+      sleepHours: existing && existing.sleepHours != null ? String(existing.sleepHours) : ""
+    };
+    var sh = App.ui.sheet(M.humanDate(dateIso));
+    sh.body.appendChild(el("p", { class: "hint", text: "From Health → Browse. Leave anything you don't have blank — partial is fine, and it says so rather than guessing." }));
+
+    function field(key, label, unit, step) {
+      var input = el("input", { class: "num", inputmode: "decimal", value: d[key],
+        "aria-label": label, oninput: function (e) { d[key] = e.target.value; } });
+      sh.body.appendChild(el("div", { class: "lf" }, [
+        el("span", { class: "lflbl", text: label + " (" + unit + ")" }), stepper(input, step)
+      ]));
+    }
+    field("hrvMs", "HRV", "ms", 1);
+    field("restingHrBpm", "Resting heart rate", "bpm", 1);
+    field("sleepHours", "Sleep", "hours", 0.25);
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var res = App.health.parseReadPayload(JSON.stringify({
+        date: dateIso, hrvMs: d.hrvMs || null, restingHrBpm: d.restingHrBpm || null, sleepHours: d.sleepHours || null
+      }));
+      if (!res.ok) {
+        App.ui.toast(res.warnings.length ? res.warnings[0] : res.fatal);
+        return;
+      }
+      App.health.applyReadings(st, res.days, "manual");
+      S.save(); sh.close(); render();
+      App.ui.toast("Saved");
+    } }, ["Save"]));
+    if (existing) {
+      sh.body.appendChild(el("button", { class: "btn danger sm", type: "button", onclick: function () {
+        if (!confirm("Delete the numbers for " + M.humanDate(dateIso) + "?")) return;
+        st.recoveryReadings = st.recoveryReadings.filter(function (r) { return r.date !== dateIso; });
+        S.save(); sh.close(); render();
+      } }, ["Delete"]));
+    }
+    sh.open();
   }
 
   function baselineRow(label, b, unit) {

@@ -125,6 +125,99 @@ those on the iPhone; see <code>shortcuts/log-strength-workout.md</code>.</p>
   App.env = { isIOS: function () { return true; } };
   eq("iPhone is supported", H.isSupported(), true);
 
+  // ================= Stage 8: the read path =================
+  function parse(x) { return H.parseReadPayload(typeof x === "string" ? x : JSON.stringify(x)); }
+  var TODAY = M.perthTodayISO();
+
+  // ---- happy paths ----
+  var one = parse({ v: 1, date: TODAY, hrvMs: 48.2, restingHrBpm: 52, sleepHours: 7.4 });
+  eq("a single day parses", one.ok, true);
+  eq("   values come through", [one.days[0].hrvMs, one.days[0].restingHrBpm, one.days[0].sleepHours], [48.2, 52, 7.4]);
+  eq("   with no warnings", one.warnings.length, 0);
+  eq("several days parse", parse({ v: 1, days: [
+    { date: "2026-09-01", hrvMs: 49 }, { date: "2026-09-02", hrvMs: 44 }] }).days.length, 2);
+  eq("a bare array parses too", parse([{ date: "2026-09-01", hrvMs: 49 }]).days.length, 1);
+  eq("days come back newest first", parse({ days: [
+    { date: "2026-09-01", hrvMs: 49 }, { date: "2026-09-02", hrvMs: 44 }] }).days[0].date, "2026-09-02");
+  eq("duplicate dates collapse to one", parse({ days: [
+    { date: "2026-09-01", hrvMs: 49 }, { date: "2026-09-01", hrvMs: 44 }] }).days.length, 1);
+  eq("shorthand keys are accepted", parse({ date: TODAY, hrv: 50, restingHr: 51, sleep: 7 }).days[0].hrvMs, 50);
+  eq("a comma decimal is understood", parse({ date: TODAY, hrvMs: "48,5" }).days[0].hrvMs, 48.5);
+  eq("JSON wrapped in quotes by the Shortcut still parses",
+    H.parseReadPayload('"' + JSON.stringify({ date: TODAY, hrvMs: 48 }).replace(/"/g, '\\"') + '"').ok, true);
+  eq("missing date defaults to today", parse({ hrvMs: 48 }).days[0].date, TODAY);
+  eq("a datetime is trimmed to its date", parse({ date: "2026-09-01T22:14:00Z", hrvMs: 48 }).days[0].date, "2026-09-01");
+
+  // ---- partial data is still worth having ----
+  var partial = parse({ date: TODAY, sleepHours: 6.5 });
+  eq("sleep alone is a successful import", partial.ok, true);
+  eq("   the others stay null rather than 0", [partial.days[0].hrvMs, partial.days[0].restingHrBpm], [null, null]);
+
+  // ---- garbage in ----
+  eq("empty input is rejected", parse("").ok, false);
+  eq("non-JSON is rejected", H.parseReadPayload("hello there").ok, false);
+  ok("   with an actionable message", /valid JSON/.test(H.parseReadPayload("hello").fatal));
+  var denied = parse({ v: 1, error: "denied" });
+  eq("a denied-permission payload is rejected", denied.ok, false);
+  ok("   and says exactly where to fix it", /Health → Sharing/.test(denied.fatal));
+  var emptyDay = parse({ v: 1, date: TODAY });
+  eq("a day with no metrics at all is rejected", emptyDay.ok, false);
+  ok("   and explains why it's probably empty", /no data for that day|permission/.test(emptyDay.fatal));
+
+  // ---- unit and sanity guards ----
+  var mins = parse({ date: TODAY, sleepHours: 444 });
+  eq("sleep in minutes is NOT silently converted", mins.ok, false);
+  ok("   it names the exact fix", /looks like minutes/.test(mins.warnings[0]) && /Divide by 60/.test(mins.warnings[0]));
+  var wildHrv = parse({ date: TODAY, hrvMs: 2000, restingHrBpm: 52 });
+  eq("an impossible HRV is dropped but the rest survives", wildHrv.days[0].restingHrBpm, 52);
+  eq("   and the impossible value is gone", wildHrv.days[0].hrvMs, null);
+  ok("   with a warning naming the plausible range", /outside anything plausible/.test(wildHrv.warnings[0]));
+  eq("an impossible resting HR is dropped", parse({ date: TODAY, restingHrBpm: 250, hrvMs: 48 }).days[0].restingHrBpm, null);
+  eq("text where a number should be is dropped", parse({ date: TODAY, hrvMs: "abc", sleepHours: 7 }).days[0].hrvMs, null);
+  var future = parse({ date: M.addDays(TODAY, 3), hrvMs: 48 });
+  eq("a future-dated reading is refused", future.ok, false);
+  ok("   pointing at the Shortcut's date step", /future/.test(future.warnings[0]));
+  ok("an unreadable date is reported", /YYYY-MM-DD/.test(parse({ date: "yesterday-ish", hrvMs: 48 }).warnings.join(" ")));
+
+  // ---- merging into state ----
+  var stateA = { recoveryReadings: [] };
+  H.applyReadings(stateA, parse({ date: "2026-09-01", hrvMs: 49, restingHrBpm: 51, sleepHours: 7.2 }).days, "shortcut");
+  eq("import adds a day", stateA.recoveryReadings.length, 1);
+  eq("   tagged with its source", stateA.recoveryReadings[0].source, "shortcut");
+  var counts = H.applyReadings(stateA, parse({ date: "2026-09-01", sleepHours: 6.0 }).days, "shortcut");
+  eq("re-importing the same date updates rather than duplicating", stateA.recoveryReadings.length, 1);
+  eq("   and reports it as an update", [counts.added, counts.updated], [0, 1]);
+  eq("   sleep was replaced", stateA.recoveryReadings[0].sleepHours, 6);
+  eq("   but HRV was NOT wiped by the partial import", stateA.recoveryReadings[0].hrvMs, 49);
+  H.applyReadings(stateA, parse({ date: "2026-08-30", hrvMs: 47 }).days, "manual");
+  eq("readings stay sorted oldest first", stateA.recoveryReadings[0].date, "2026-08-30");
+  eq("manual entries record their source", stateA.recoveryReadings[0].source, "manual");
+
+  // ---- imported readings actually reach the baselines ----
+  ok("imported numbers feed the recovery baselines", (function () {
+    var st2 = { settings: {}, recoveryReadings: [], readinessCheckins: [] };
+    var days = [];
+    for (var i = 12; i >= 1; i--) days.push({ date: M.addDays(TODAY, -i), hrvMs: 50, restingHrBpm: 51, sleepHours: 7.5 });
+    H.applyReadings(st2, parse({ days: days }).days, "shortcut");
+    var b = M.recoveryBaselines(st2, TODAY);
+    return b.hrvMs.n === 12 && b.hrvMs.median === 50;
+  })());
+  ok("a bad night in imported data reads as amber, never red", (function () {
+    var st3 = { settings: {}, recoveryReadings: [], readinessCheckins: [] };
+    var days = [];
+    for (var i = 12; i >= 1; i--) days.push({ date: M.addDays(TODAY, -i), hrvMs: 50, restingHrBpm: 51, sleepHours: 7.5 });
+    days.push({ date: TODAY, hrvMs: 20, restingHrBpm: 68, sleepHours: 4 });
+    H.applyReadings(st3, parse({ days: days }).days, "shortcut");
+    return M.readiness(st3, TODAY).status === "amber";
+  })());
+
+  // ---- the read URL ----
+  var rurl = H.readShortcutURL("Read Recovery");
+  ok("read URL uses the same documented scheme", rurl.indexOf("shortcuts://run-shortcut?name=") === 0);
+  ok("read URL encodes the name", rurl.indexOf("Read%20Recovery") > -1);
+  ok("read URL sends no input — it only fetches", rurl.indexOf("text=") < 0);
+  ok("a missing read name falls back to the default", H.readShortcutURL(null).indexOf("Read%20Recovery") > -1);
+
   document.getElementById("summary").innerHTML =
     (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
 })();
