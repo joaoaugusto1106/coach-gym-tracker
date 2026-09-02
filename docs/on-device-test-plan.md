@@ -23,16 +23,17 @@ desktop Safari at all.
 | # | Do | Expect |
 |---|---|---|
 | 0.1 | Repo → Settings → General → Danger Zone → **Change visibility** → public | Pages is only free on a public repo |
-| 0.2 | Merge the Pages PR into `main` | Actions → *Deploy to GitHub Pages* runs green |
-| 0.3 | Open **<https://joaoaugusto1106.github.io/coach-gym-tracker/>** in **Safari** on the iPhone | Coach loads, Today shows the next day in the rotation |
-| 0.4 | Share → **Add to Home Screen** → Add | An icon called Coach |
-| 0.5 | Open it **from the home screen** | Full screen, no Safari chrome |
-| 0.6 | More → **On this device** | *Installed to home screen: **Yes***, *Works offline: **Ready*** |
+| 0.2 | Repo → Settings → **Pages** → *Build and deployment* → Source → **GitHub Actions** | One-time, and it must be done by hand — the workflow's own token is not allowed to create the Pages site |
+| 0.3 | Merge the Pages PR into `main` | Actions → *Deploy to GitHub Pages* runs green |
+| 0.4 | Open **<https://joaoaugusto1106.github.io/coach-gym-tracker/>** in **Safari** on the iPhone | Coach loads, Today shows the next day in the rotation |
+| 0.5 | Share → **Add to Home Screen** → Add | An icon called Coach |
+| 0.6 | Open it **from the home screen** | Full screen, no Safari chrome |
+| 0.7 | More → **On this device** | *Installed to home screen: **Yes***, *Works offline: **Ready*** |
 
 **Only Safari can install a web app on iOS.** Chrome on iPhone will load Coach but cannot
 add it to the home screen.
 
-### 0.7 — Prove offline before trusting it in a basement
+### 0.8 — Prove offline before trusting it in a basement
 
 1. Force-quit Coach (swipe up).
 2. Turn on **Airplane mode**.

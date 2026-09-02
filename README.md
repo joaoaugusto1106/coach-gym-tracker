@@ -30,17 +30,24 @@ Icons are generated, not hand-drawn — `python3 tools/make-icons.py` rebuilds `
 
 `.github/workflows/deploy-pages.yml` publishes the site on every push to `main`. There is no
 build step — the repository root *is* the site — so the workflow uploads the checkout as-is
-and hands it to Pages. It also turns Pages on the first time it runs, so nothing needs
-clicking in Settings beforehand.
+and hands it to Pages.
 
 The published URL is **<https://joaoaugusto1106.github.io/coach-gym-tracker/>**.
 
-> **The repository is currently private, and Pages needs a public repository on a free
-> account.** Until it is either made public (repo → Settings → General → Danger Zone →
-> Change visibility) or the account has GitHub Pro, the deploy job will fail at the Pages
-> step. Nothing in this repository is a secret — all training data lives in `localStorage`
-> on the device and none of it is committed — but making it public is a decision, not a
-> detail, so it is left alone here.
+Two things have to be true before the first deploy can work, and neither can be done from
+the workflow:
+
+1. **The repository must be public**, unless the account has GitHub Pro — Pages is not
+   available on private repositories on a free plan.
+2. **Pages must be switched on once by hand**: Settings → Pages → *Build and deployment* →
+   Source → **GitHub Actions**.
+
+The second one is not optional and not automatable here. `actions/configure-pages` accepts
+an `enablement: true` input that looks like it would do it, but the workflow's own
+`GITHUB_TOKEN` is not permitted to create a Pages site — it fails with *"Create Pages site
+failed: Resource not accessible by integration"* no matter what `permissions:` the workflow
+asks for. Only a user (or a PAT with admin rights) can create the site. Once it exists, every
+later run is fully automatic.
 
 Everything is addressed relatively — the service worker registers as `sw.js`, the manifest
 uses `./` — so the app works unchanged at the `/coach-gym-tracker/` subpath, at a domain
