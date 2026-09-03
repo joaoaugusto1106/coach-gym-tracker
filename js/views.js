@@ -1946,7 +1946,26 @@ window.App = window.App || {};
         stat(plan.kcalTargetLow + "–" + plan.kcalTargetHigh, "kcal"),
         stat("~" + plan.proteinTarget + " g", "protein")
       ]),
-      el("p", { class: "hint", text: "A starting estimate from your stats and a physically active job — corrected by what the scale actually does, not treated as a fixed number. The app tracks whether the six meals happened, not grams." })
+      el("p", { class: "hint", text: "A starting estimate from your stats and a physically active job — corrected by what the scale actually does, not treated as a fixed number. The app tracks whether the six meals happened, not grams." }),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt("Daily calorie target, as a range in kcal (e.g. 3400-3500)",
+          plan.kcalTargetLow + "-" + plan.kcalTargetHigh);
+        if (v == null) return;
+        var m = String(v).split(/[-–to\s]+/).map(function (x) { return parseInt(x, 10); })
+          .filter(function (x) { return !isNaN(x); });
+        if (!m.length) { App.ui.toast("Couldn't read that as a range"); return; }
+        var lo = m[0], hi = m.length > 1 ? m[1] : m[0];
+        if (lo > hi) { var t = lo; lo = hi; hi = t; }
+        if (lo < 800 || hi > 8000) { App.ui.toast("That range looks wrong — expected something between 800 and 8000 kcal"); return; }
+        st.settings.kcalTargetLow = lo; st.settings.kcalTargetHigh = hi; S.save(); render();
+      } }, ["Change calorie target"]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt("Daily protein target in grams", String(plan.proteinTarget));
+        if (v == null) return;
+        var n = parseInt(v, 10);
+        if (isNaN(n) || n < 20 || n > 500) { App.ui.toast("Enter a protein target between 20 and 500 g"); return; }
+        st.settings.proteinTarget = n; S.save(); render();
+      } }, ["Change protein target"])
     ]));
 
     // this week
@@ -2052,6 +2071,38 @@ window.App = window.App || {};
     return screen({ title: "Body" }, nodes, "Body");
   }
 
+  /* The band every portion suggestion is measured against, so it has to be
+     yours to set: gaining slower, holding and losing are all legitimate goals,
+     and a fixed 0.2-0.3 would keep nudging you at a rate you stopped wanting.
+     It renders before the weigh-in data does, because you want to say what you
+     are aiming at on day one, not after a fortnight of readings. */
+  function targetRateCard(st) {
+    return el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "What you're aiming for" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Target rate" }),
+        el("b", { text: st.settings.bwTargetKgPerWeekLow + " to " + st.settings.bwTargetKgPerWeekHigh + " kg/week" })
+      ]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt(
+          "Target rate of change in kg per week, as a range.\n\n" +
+          "Gaining:  0.2 to 0.3\n" +
+          "Holding:  -0.05 to 0.05\n" +
+          "Losing:   -0.5 to -0.25",
+          st.settings.bwTargetKgPerWeekLow + " to " + st.settings.bwTargetKgPerWeekHigh);
+        if (v == null) return;
+        var nums = String(v).match(/-?\d+(?:\.\d+)?/g);
+        if (!nums || !nums.length) { App.ui.toast("Couldn't read that as a range"); return; }
+        var lo = parseFloat(nums[0]), hi = nums.length > 1 ? parseFloat(nums[1]) : parseFloat(nums[0]);
+        if (lo > hi) { var t2 = lo; lo = hi; hi = t2; }
+        if (lo < -2 || hi > 2) { App.ui.toast("That looks wrong — expected something between -2 and 2 kg/week"); return; }
+        st.settings.bwTargetKgPerWeekLow = lo; st.settings.bwTargetKgPerWeekHigh = hi;
+        S.save(); render();
+      } }, ["Change the target rate"]),
+      el("p", { class: "hint", text: "Every portion suggestion is judged against this band, and nothing is suggested until the weigh-ins can support it." })
+    ]);
+  }
+
   function bodySectionWeight(st, nodes) {
     var today = M.perthTodayISO();
     var series = M.bodyweightSeries(st);
@@ -2066,8 +2117,11 @@ window.App = window.App || {};
       ]));
       nodes.push(el("button", { class: "btn primary", type: "button", onclick: function () { weighInSheet(st, today); } },
         [icon("plus", 16), " Log today's weight"]));
+      nodes.push(targetRateCard(st));
       return;
     }
+
+    nodes.push(targetRateCard(st));
 
     var todayEntry = series.filter(function (b) { return b.date === today; })[0];
     nodes.push(el("div", { class: "card" }, [
@@ -2102,7 +2156,7 @@ window.App = window.App || {};
       ]),
       el("p", { class: "sug-detail", text: advice.reason }),
       el("p", { class: "hint", text: "Target: " + st.settings.bwTargetKgPerWeekLow + "–" +
-        st.settings.bwTargetKgPerWeekHigh + " kg/week. One change at a time, then two weeks before the next." })
+        st.settings.bwTargetKgPerWeekHigh + " kg/week. One change at a time, then two weeks before the next." }),
     ]));
 
     nodes.push(el("div", { class: "card" }, [

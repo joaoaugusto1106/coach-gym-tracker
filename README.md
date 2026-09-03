@@ -281,7 +281,8 @@ and 0.5 per partial. Today is shown live but kept out of the weekly average unti
 and days you never logged are reported separately rather than counted as zeros.
 
 The kcal and protein targets are shown as what they are: a starting estimate to be corrected
-by what the scale does.
+by what the scale does — and they are editable on the Food tab, which a number described as
+"to be corrected" rather needs to be.
 
 **Body** logs a weigh-in per day and plots every reading with a 7-day rolling average over
 the top — single mornings bounce too much to read. The trend is a least-squares fit over the
@@ -303,6 +304,12 @@ It checks four things in order, and stops at the first one it can't answer:
 
 Only then does it suggest **one** change — about 50 g more rice at dinner, or half a scoop
 less oats — and says to wait two weeks before the next one.
+
+**The target band itself is yours to set** (Body → *What you're aiming for*). Gaining, holding
+and losing are all legitimate, and every portion suggestion is judged against whatever band you
+put there — a fixed 0.2–0.3 kg/week would have gone on nudging you toward a bulk long after you
+stopped wanting one. The control sits above the weigh-in data on purpose: you want to say what
+you are aiming at on day one, not after a fortnight of readings.
 
 ## The deload week
 
