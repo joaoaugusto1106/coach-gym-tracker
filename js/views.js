@@ -1722,10 +1722,18 @@ window.App = window.App || {};
         var cur = (set.availablePlatesKg || M.DEFAULT_PLATES).join(", ");
         var v = prompt("Plate sizes your gym has, in kg, separated by commas", cur);
         if (v == null) return;
+        var seen = {}, tooBig = false;
         var list = v.split(",").map(function (x) { return parseFloat(x.trim()); })
-          .filter(function (x) { return !isNaN(x) && x > 0; })
+          .filter(function (x) {
+            if (isNaN(x) || x <= 0) return false;
+            if (x > 100) { tooBig = true; return false; }   // no gym has a 100 kg plate
+            if (seen[x]) return false;                      // "20, 20, 10" is one 20
+            seen[x] = true; return true;
+          })
           .sort(function (a, b) { return b - a; });
+        if (tooBig && !list.length) { App.ui.toast("Plates over 100 kg aren't a thing — check the numbers"); return; }
         if (!list.length) { App.ui.toast("Couldn't read any plate sizes"); return; }
+        if (tooBig) App.ui.toast("Ignored a plate over 100 kg");
         set.availablePlatesKg = list; S.save(); render();
       } }, ["Change plates"]),
       el("p", { class: "hint", text: "Used by the plate maths — tap a barbell exercise's name during a session." })
