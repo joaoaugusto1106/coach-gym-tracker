@@ -139,7 +139,41 @@
 
   finish();
   function finish() {
-    document.getElementById("summary").innerHTML =
+    // --- implausible set values in an imported backup ---
+  // The log form bounds these now, but a hand-edited backup, or one written
+  // before the bounds existed, must not be able to smuggle in a set no real
+  // lift can beat. Warnings rather than errors -- this is somebody's training
+  // history, and refusing the whole import over one odd row would be worse.
+  (function () {
+    function withSet(w, r) {
+      var base = {
+        schemaVersion: 2, meta: { appVersion: "1.0.0" }, settings: {},
+        exercises: App.EXERCISE_SEED, programVersions: [App.PROGRAM_SEED],
+        sessions: [{ id: "s1", status: "completed", date: "2026-08-20", entries: [
+          { exerciseId: "bb-bench", sets: [{ id: "x", order: 0, type: "working", weightKg: w, reps: r }] }
+        ] }]
+      };
+      return base;
+    }
+    var okRes = App.store.validate(withSet(100, 8));
+    eq("a normal set raises nothing", okRes.warnings.filter(function (x) { return /implausible/.test(x); }).length, 0);
+
+    var heavy = App.store.validate(withSet(99999, 10));
+    ok("an absurd weight is flagged", heavy.warnings.some(function (x) { return /implausible weight/.test(x); }));
+    var many = App.store.validate(withSet(60, 999));
+    ok("an absurd rep count is flagged", many.warnings.some(function (x) { return /implausible rep/.test(x); }));
+
+    // and it stays a warning, so the import is still usable
+    ok("the import is not rejected over it", heavy.errors.filter(function (e) { return /implausible/.test(e); }).length === 0);
+
+    // the legitimate edges still pass
+    eq("0 kg is fine — that is bodyweight",
+      App.store.validate(withSet(0, 10)).warnings.filter(function (x) { return /implausible weight/.test(x); }).length, 0);
+    eq("the boundary values themselves are allowed",
+      App.store.validate(withSet(500, 100)).warnings.filter(function (x) { return /implausible/.test(x); }).length, 0);
+  })();
+
+  document.getElementById("summary").innerHTML =
       (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
   }
 })();

@@ -657,6 +657,18 @@ window.App = window.App || {};
       var w = parseFloat(d.weight), r = parseInt(d.reps, 10);
       if (isNaN(w) || w < 0) { App.ui.toast("Enter a weight"); return; }
       if (isNaN(r) || r < 1) { App.ui.toast("Enter reps"); return; }
+      // Upper bounds matter more than they look. A fat-fingered 99999 or 999
+      // reps is stored forever as an unbeatable PR, flattens every real point
+      // on the progress chart, and skews muscle-group volume -- and there is no
+      // way to tell it from a real set later. Everywhere else in the app refuses
+      // implausible input (heart rate, sleep, ride minutes); this is the form it
+      // matters most in.
+      if (w > M.MAX_SET_WEIGHT_KG) {
+        App.ui.toast(w + " kg looks like a typo — the limit is " + M.MAX_SET_WEIGHT_KG + " kg"); return;
+      }
+      if (r > M.MAX_SET_REPS) {
+        App.ui.toast(r + " reps looks like a typo — the limit is " + M.MAX_SET_REPS); return;
+      }
       commitSet(w, r, d.rir, d.type);
     } }, ["Log " + (d.type === "working" ? "set" : d.type === "warmup" ? "warm-up" : "drop set")]);
 

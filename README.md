@@ -174,6 +174,11 @@ importEvents[] backups[]
 
 - **Autosave** after every set change; "Saved HH:MM" on the Session screen. If a write
   fails, a red banner appears and stays until it succeeds.
+- **A set has bounds**: 0–500 kg and 1–100 reps. 0 kg is legitimate (bodyweight) and so are
+  micro-plates; a fat-fingered `99999` or `999` is not, and it would otherwise sit in your
+  history forever as an unbeatable PR, flatten every real point on the progress chart, and
+  skew muscle-group volume. Imports flag the same values as warnings rather than errors —
+  one odd row shouldn't cost you the whole backup.
 - **Last-known-good** copy (`coach.lkg`) written before every save; a corrupt main blob is
   recovered from it on the next launch.
 - **Backups** in `coach.backup.<id>`: last 5 rolling, plus one automatic per week, plus

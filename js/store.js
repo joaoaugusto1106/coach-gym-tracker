@@ -288,8 +288,24 @@ window.App = window.App || {};
       ss.entries.forEach(function (en) {
         if (en && en.exerciseId && !exIds[en.exerciseId]) warnings.push("session " + ss.id + " references unknown exercise " + en.exerciseId);
         (en.sets || []).forEach(function (st) {
-          if (typeof st.weightKg !== "number" || typeof st.reps !== "number")
+          if (typeof st.weightKg !== "number" || typeof st.reps !== "number") {
             errors.push("session " + ss.id + " has a set with non-numeric weight/reps");
+            return;
+          }
+          // Same bounds the log form enforces. A backup edited by hand, or one
+          // written before those bounds existed, should not be able to put a
+          // set in that no real lift can beat -- an unbeatable PR and a
+          // flattened progress chart are permanent and hard to spot after the
+          // fact. Warnings, not errors: this is somebody's training history and
+          // refusing the whole import over one odd row would be worse.
+          // store.js is loaded before model.js, so read the bounds defensively --
+          // a throw in here would take the whole import down with it.
+          var maxW = (App.model && App.model.MAX_SET_WEIGHT_KG) || 500;
+          var maxR = (App.model && App.model.MAX_SET_REPS) || 100;
+          if (st.weightKg < 0 || st.weightKg > maxW)
+            warnings.push("session " + ss.id + " has an implausible weight: " + st.weightKg + " kg");
+          if (st.reps < 1 || st.reps > maxR)
+            warnings.push("session " + ss.id + " has an implausible rep count: " + st.reps);
         });
       });
     });

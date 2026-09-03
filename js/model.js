@@ -7,6 +7,14 @@ window.App = window.App || {};
 (function () {
   var U = App.util;
 
+  /* Bounds for a single logged set. Deliberately generous -- well past any
+     lift a person will do -- because the job is catching a slipped digit, not
+     policing how strong someone is. The all-time raw squat record is under
+     500 kg, and 100 reps is already past the point where "reps" is the
+     interesting number. */
+  var MAX_SET_WEIGHT_KG = 500;
+  var MAX_SET_REPS = 100;
+
   function epley(weightKg, reps) { return weightKg * (1 + reps / 30); }
   function round2(n) { return Math.round(n * 100) / 100; }
   function e1rmOf(s) { return (s.e1rm != null) ? s.e1rm : epley(s.weightKg, s.reps); }
@@ -1509,6 +1517,7 @@ window.App = window.App || {};
     workingSets: workingSets, countsForHistory: countsForHistory,
     lastPerformance: lastPerformance, exposures: exposures,
     repRangeText: repRangeText, setsText: setsText, uid: uid, restText: restText,
+    MAX_SET_WEIGHT_KG: MAX_SET_WEIGHT_KG, MAX_SET_REPS: MAX_SET_REPS,
     isBodyweightHistory: isBodyweightHistory,
     prsForSet: prsForSet, prLabel: prLabel, prAllLabels: prAllLabels,
     priorSetsLive: priorSetsLive,
