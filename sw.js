@@ -15,7 +15,7 @@
 
    To ship a new version, bump VERSION. Old caches are deleted on activate. */
 
-var VERSION = "v9.0.0";
+var VERSION = "v9.1.0";
 var CACHE = "coach-" + VERSION;
 
 var SHELL = [
@@ -94,10 +94,16 @@ self.addEventListener("fetch", function (e) {
         caches.open(CACHE).then(function (c) { c.put("./index.html", copy); });
         return res;
       })["catch"](function () {
+        // Each fallback is a promise, so they have to be chained, not ||'d:
+        // `hit || caches.match("./")` is always truthy (a promise is an object),
+        // which both skipped "./" and made the offline notice below unreachable —
+        // respondWith would have been handed undefined and thrown instead.
         return caches.match("./index.html").then(function (hit) {
-          return hit || caches.match("./") || new Response(
+          return hit || caches.match("./");
+        }).then(function (hit) {
+          return hit || new Response(
             "<h1>Coach is offline</h1><p>Open the app once while online to finish installing it.</p>",
-            { headers: { "Content-Type": "text/html" } }
+            { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
           );
         });
       })
