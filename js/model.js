@@ -962,7 +962,11 @@ window.App = window.App || {};
     var n = checkpointCount(state);
     for (var i = 0; i < n; i++) {
       var c = (rec && rec.checkpoints && rec.checkpoints[i]) || { state: "none" };
-      out[c.state || "none"]++;
+      // A state outside the four known ones (a hand-edited import, say) used to
+      // create a new key and increment `undefined` into it, quietly turning a
+      // count into NaN. Anything unrecognised is simply not logged.
+      var k = out.hasOwnProperty(c.state) && c.state !== "larger" ? c.state : "none";
+      out[k]++;
       if (c.largerPortion) out.larger++;
     }
     return out;

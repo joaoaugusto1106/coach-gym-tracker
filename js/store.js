@@ -328,6 +328,21 @@ window.App = window.App || {};
         warnings.push("cardio " + c.id + " implausible avg HR: " + c.avgHrBpm);
     });
 
+    // Same posture as the rides above: a checkpoint state outside the four the
+    // app knows is worth saying out loud, because it silently counts as "not
+    // logged" and drags an adherence figure down for no visible reason -- but
+    // it is not worth refusing the import over.
+    var CP_STATES = { done: 1, partial: 1, skipped: 1, none: 1 };
+    (s.nutritionDays || []).forEach(function (d, i) {
+      if (!d || !Array.isArray(d.checkpoints)) return;
+      d.checkpoints.forEach(function (c, j) {
+        if (c && c.state != null && !CP_STATES[c.state]) {
+          warnings.push("nutritionDays[" + i + "] (" + (d.date || "no date") +
+            ") checkpoint " + j + " has an unknown state: " + c.state);
+        }
+      });
+    });
+
     var exIds = {};
     (s.exercises || []).forEach(function (e) { if (e && e.id) exIds[e.id] = true; });
 

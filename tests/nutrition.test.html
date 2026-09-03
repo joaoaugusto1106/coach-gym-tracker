@@ -69,6 +69,15 @@
   eq("counts break down by state",
     M.dayCounts(st, day("x", ["done","done","partial","skipped"])),
     { done: 2, partial: 1, skipped: 1, none: 2, larger: 0 });
+  // A state outside the four known ones used to create a new key and increment
+  // `undefined` into it, so the day's counts came back with a NaN in them.
+  eq("an unknown state counts as unlogged, not as NaN",
+    M.dayCounts(st, day("x", ["done","BOGUS","done"])),
+    { done: 2, partial: 0, skipped: 0, none: 4, larger: 0 });
+  ok("and the counts still add up to the checkpoints", (function () {
+    var c = M.dayCounts(st, day("x", ["done", "BOGUS", "", null]));
+    return c.done + c.partial + c.skipped + c.none === 6;
+  })());
 
   // ---- adherence over a range ----
   var r = baseState({ nutritionDays: [
