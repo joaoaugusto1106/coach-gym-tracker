@@ -15,7 +15,7 @@
 
    To ship a new version, bump VERSION. Old caches are deleted on activate. */
 
-var VERSION = "v9.12.0";
+var VERSION = "v9.13.0";
 var CACHE = "coach-" + VERSION;
 
 var SHELL = [

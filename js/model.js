@@ -803,6 +803,22 @@ window.App = window.App || {};
   }
 
   // Per-exercise series for the progress view: one point per valid exposure.
+  // True when every working set ever logged for this exercise was at 0 kg.
+  function isBodyweightHistory(state, exerciseId) {
+    var any = false, allZero = true;
+    (state.sessions || []).forEach(function (s) {
+      if (!countsForHistory(s)) return;
+      s.entries.forEach(function (en) {
+        if (en.exerciseId !== exerciseId) return;
+        workingSets(en.sets).forEach(function (x) {
+          any = true;
+          if (round2(x.weightKg) !== 0) allZero = false;
+        });
+      });
+    });
+    return any && allZero;
+  }
+
   function exerciseProgress(state, exerciseId) {
     return exposures(state, exerciseId).slice().reverse().map(function (e) {
       var ws = workingSets(e.sets);
@@ -846,6 +862,28 @@ window.App = window.App || {};
       });
     });
     if (!all.length) return null;
+
+    /* An exercise carried entirely at bodyweight -- hanging leg raise, Nordic
+       curl, an unweighted pull-up -- has an Epley e1RM of exactly zero, because
+       Epley multiplies by the load. Reporting "0 kg -- Best estimated 1RM" as a
+       personal record is worse than reporting nothing: it looks broken, and it
+       buries the number that did move. For those, reps ARE the progression, so
+       they are what gets recorded. The moment any set carries added weight the
+       exercise goes back to being measured in kilos. */
+    var bodyweight = all.every(function (x) { return round2(x.set.weightKg) === 0; });
+    if (bodyweight) {
+      var bestSet = all.reduce(function (a, x) { return x.set.reps > a.set.reps ? x : a; });
+      var byDate = {};
+      all.forEach(function (x) { byDate[x.date] = (byDate[x.date] || 0) + x.set.reps; });
+      var bestDate = Object.keys(byDate).reduce(function (a, d) { return byDate[d] > byDate[a] ? d : a; });
+      return {
+        bodyweight: true,
+        bestSet: { reps: bestSet.set.reps, date: bestSet.date },
+        bestSession: { reps: byDate[bestDate], date: bestDate },
+        totalWorkingSets: all.length
+      };
+    }
+
     var heaviest = all.reduce(function (a, x) { return x.set.weightKg > a.set.weightKg ? x : a; });
     var bestE1rm = all.reduce(function (a, x) { return e1rmOf(x.set) > e1rmOf(a.set) ? x : a; });
     var repsAtHeaviest = all.filter(function (x) { return round2(x.set.weightKg) === round2(heaviest.set.weightKg); })
@@ -1471,6 +1509,7 @@ window.App = window.App || {};
     workingSets: workingSets, countsForHistory: countsForHistory,
     lastPerformance: lastPerformance, exposures: exposures,
     repRangeText: repRangeText, setsText: setsText, uid: uid, restText: restText,
+    isBodyweightHistory: isBodyweightHistory,
     prsForSet: prsForSet, prLabel: prLabel, prAllLabels: prAllLabels,
     priorSetsLive: priorSetsLive,
     recomputeSessionPRs: recomputeSessionPRs, recomputeAllPRs: recomputeAllPRs,

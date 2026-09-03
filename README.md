@@ -296,7 +296,13 @@ began. Abandoned sessions are hidden behind a toggle.
 
 **Exercises** — every exercise you've logged, newest-used first. Tap one for its records, a
 progress chart (best estimated 1RM or heaviest working set per session), and every session
-it appears in. Warm-up and drop sets are excluded throughout; abandoned sessions never count.
+it appears in.
+
+An exercise carried entirely at bodyweight — hanging leg raise, Nordic curl, an unweighted
+pull-up — is reported in **reps** instead. Epley multiplies by the load, so its estimated 1RM
+is exactly zero, and showing *"0 kg — best estimated 1RM"* as a personal record looks broken
+while burying the number that actually moved. Those show best set and best session in reps,
+and the chart plots total working reps. Add weight to any set and it reverts to kilos. Warm-up and drop sets are excluded throughout; abandoned sessions never count.
 
 ## Food and body weight
 

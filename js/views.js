@@ -1397,7 +1397,17 @@ window.App = window.App || {};
       return screen({ title: ex.name, lead: back }, nodes, ex.name);
     }
 
-    if (rec) {
+    if (rec && rec.bodyweight) {
+      // Carried at bodyweight throughout, so kilos say nothing and an Epley
+      // e1RM is exactly zero. Reps are the progression here, so reps are the
+      // record. Add weight to any set and this reverts to the normal panel.
+      nodes.push(el("div", { class: "card tintP" }, [
+        el("span", { class: "eyebrow", text: "Personal records" }),
+        prLine("Best set", rec.bestSet.reps + " reps", rec.bestSet.date),
+        prLine("Best session", rec.bestSession.reps + " reps total", rec.bestSession.date),
+        el("p", { class: "hint", text: "Logged at bodyweight, so there is no weight to record and an estimated 1RM would be zero. Add weight to a set and this switches to kilos." })
+      ]));
+    } else if (rec) {
       nodes.push(el("div", { class: "card tintP" }, [
         el("span", { class: "eyebrow", text: "Personal records" }),
         prLine("Heaviest", rec.heaviest.weightKg + " kg × " + rec.heaviest.reps, rec.heaviest.date),
@@ -1409,18 +1419,23 @@ window.App = window.App || {};
       ]));
     }
 
+    var bw = !!(rec && rec.bodyweight);
+    var metric = bw ? "reps" : chartMetric;
     nodes.push(el("div", { class: "card" }, [
       el("div", { class: "rowb" }, [
         el("span", { class: "eyebrow", text: prog.length === 1 ? "One session" : prog.length + " sessions" }),
-        el("div", { class: "seg tiny" }, [["e1rm", "1RM"], ["weight", "Top set"]].map(function (t) {
+        // No metric toggle when both options would plot a flat line of zeroes.
+        bw ? null : el("div", { class: "seg tiny" }, [["e1rm", "1RM"], ["weight", "Top set"]].map(function (t) {
           return el("button", { class: "segb" + (chartMetric === t[0] ? " on" : ""), type: "button", text: t[1],
             onclick: function () { chartMetric = t[0]; render(); } });
         }))
       ]),
-      progressChart(prog, chartMetric),
-      el("p", { class: "hint", text: chartMetric === "e1rm"
-        ? "Best estimated 1RM per session (Epley: weight × (1 + reps ÷ 30))."
-        : "Heaviest working set per session." })
+      progressChart(prog, metric),
+      el("p", { class: "hint", text: metric === "reps"
+        ? "Total working reps per session."
+        : metric === "e1rm"
+          ? "Best estimated 1RM per session (Epley: weight × (1 + reps ÷ 30))."
+          : "Heaviest working set per session." })
     ]));
 
     nodes.push(el("div", { class: "card" }, [
@@ -1450,7 +1465,9 @@ window.App = window.App || {};
   // Small inline SVG line chart. One point per session; endpoint emphasised.
   function progressChart(prog, metric) {
     var W = 300, H = 120, PAD_L = 6, PAD_R = 6, PAD_T = 12, PAD_B = 18;
-    var vals = prog.map(function (p) { return metric === "e1rm" ? p.bestE1rm : p.topWeight; });
+    var vals = prog.map(function (p) {
+      return metric === "reps" ? p.totalReps : metric === "e1rm" ? p.bestE1rm : p.topWeight;
+    });
     var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
     if (max === min) { max = min + 1; min = min - 1; }
     var pad = (max - min) * 0.15;
@@ -1486,7 +1503,8 @@ window.App = window.App || {};
     var wrap = el("div", { class: "chartwrap" }, [svg]);
     wrap.appendChild(el("div", { class: "chartaxis" }, [
       el("span", { text: M.shortDate(prog[0].date) }),
-      el("span", { class: "chartmax", text: Math.round(Math.max.apply(null, vals) * 10) / 10 + " kg peak" }),
+      el("span", { class: "chartmax", text: Math.round(Math.max.apply(null, vals) * 10) / 10 +
+        (metric === "reps" ? " reps peak" : " kg peak") }),
       el("span", { text: M.shortDate(prog[n - 1].date) })
     ]));
     return wrap;

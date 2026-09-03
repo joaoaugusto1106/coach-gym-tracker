@@ -194,6 +194,45 @@
   eq("warm-up-only exercises are excluded", hist.filter(function (h) { return h.exerciseId === "ohp"; }).length, 0);
   eq("no duplicates across sessions", hist.length, 2);
 
+  // --- bodyweight exercises ---
+  // Epley multiplies by the load, so an unweighted lift has an e1RM of exactly
+  // zero. Reporting "0 kg -- best estimated 1RM" as a record looks broken and
+  // buries the number that actually moved.
+  (function () {
+    function sess(date, w, reps) {
+      return { id: "s" + date + w, status: "completed", date: date, startedAt: date + "T16:00:00Z",
+        entries: [{ exerciseId: "hanging-leg-raise", sets: [0, 1, 2].map(function (i) {
+          return { id: "z" + date + w + i, order: i, type: "working", weightKg: w, reps: reps, rir: 1,
+            e1rm: M.epley(w, reps), prFlags: [] };
+        }) }] };
+    }
+    var bwState = { exercises: App.EXERCISE_SEED, sessions: [sess("2026-08-20", 0, 12), sess("2026-08-27", 0, 15)] };
+
+    eq("all-zero history is recognised as bodyweight",
+      M.isBodyweightHistory(bwState, "hanging-leg-raise"), true);
+    var r = M.exerciseRecords(bwState, "hanging-leg-raise");
+    eq("records switch to reps", r.bodyweight, true);
+    eq("best set is the best single set", [r.bestSet.reps, r.bestSet.date], [15, "2026-08-27"]);
+    eq("best session totals the working reps", [r.bestSession.reps, r.bestSession.date], [45, "2026-08-27"]);
+    ok("and no zero-kilo records are reported", r.heaviest === undefined && r.bestE1rm === undefined);
+    eq("working sets are still counted", r.totalWorkingSets, 6);
+
+    // one weighted set and it is a weighted exercise again
+    var mixed = { exercises: App.EXERCISE_SEED,
+      sessions: bwState.sessions.concat([sess("2026-09-03", 10, 8)]) };
+    eq("any added weight ends the bodyweight treatment",
+      M.isBodyweightHistory(mixed, "hanging-leg-raise"), false);
+    var r2 = M.exerciseRecords(mixed, "hanging-leg-raise");
+    ok("and the normal records come back", !r2.bodyweight && r2.heaviest.weightKg === 10);
+    ok("with a real e1RM", r2.bestE1rm.value > 0);
+
+    // no history at all is still null, not a bodyweight claim
+    eq("an exercise never logged has no records",
+      M.exerciseRecords({ exercises: App.EXERCISE_SEED, sessions: [] }, "hanging-leg-raise"), null);
+    eq("and is not called bodyweight",
+      M.isBodyweightHistory({ exercises: App.EXERCISE_SEED, sessions: [] }, "hanging-leg-raise"), false);
+  })();
+
   // --- cardio: the easy Zone 2 rides ---
   (function () {
     var settings = { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 };
