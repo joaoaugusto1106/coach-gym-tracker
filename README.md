@@ -170,6 +170,18 @@ session.recoverySnapshot   the readiness frozen on the day it was trained
 importEvents[] backups[]
 ```
 
+## User text is never markup
+
+Exercise names, session notes, set notes and ride notes are all free text. Every one of them
+reaches the screen through `textContent`, never `innerHTML` — the `el()` helper has an `html`
+option and nothing in `views.js` uses it. Verified by rendering `<img src=x onerror=…>` as an
+exercise name, a session note, a set note and a ride note, then visiting every screen: it
+appears as literal text, no element is created, nothing runs.
+
+A test asserts the invariant at the source level — that `views.js` contains no `html:` render
+and only ever *clears* `innerHTML` — so the day someone reaches for that option with a name in
+their hand, the suite says no.
+
 ## Data safety
 
 - **Autosave** after every set change; "Saved HH:MM" on the Session screen. If a write

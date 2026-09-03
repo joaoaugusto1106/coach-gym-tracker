@@ -272,7 +272,24 @@ service-worker runtime; verify that on the device (see the README).</p>
         !/\b(openDatabase|navigator\.storage\.persist)\b/.test(code));
       ok("every cache deletion is guarded by the coach- prefix",
         /indexOf\("coach-"\) === 0 && k !== CACHE/.test(src));
-      finish();
+
+      // ---- user text is never parsed as markup ----
+      // el() has an `html` option that assigns innerHTML. Exercise names,
+      // session and set notes and ride notes are all free text now, so the day
+      // one of them is rendered through that option, a name containing a tag
+      // starts executing. Nothing uses it today; this is the guard that keeps
+      // it that way.
+      return fetch("../js/views.js").then(function (r) { return r.text(); }).then(function (v) {
+        var vcode = v.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+        ok("views.js never renders through el()'s html option", !/\bhtml:\s/.test(vcode));
+        // count both forms rather than using a negative lookahead: \s* happily
+        // backtracks to zero width and lets (?!"") pass on the space
+        var assigns = (vcode.match(/\.innerHTML\s*=/g) || []).length;
+        var clears = (vcode.match(/\.innerHTML\s*=\s*""/g) || []).length;
+        ok("views.js only ever clears innerHTML, never assigns content (" +
+          clears + " of " + assigns + ")", assigns === clears);
+        finish();
+      });
     })["catch"](function (e) {
       ok("test run completed without throwing — " + e.message, false);
       finish();
