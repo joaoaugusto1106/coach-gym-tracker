@@ -198,6 +198,13 @@ window.App = window.App || {};
     return exposures(state, exerciseId, excludeSessionId, 1)[0] || null;
   }
 
+  // "2:30" reads faster than "150 s" when you are looking at a clock anyway.
+  function restText(sec) {
+    sec = Math.max(0, Math.round(sec || 0));
+    var m = Math.floor(sec / 60), r = sec % 60;
+    return m ? (m + ":" + (r < 10 ? "0" : "") + r) : (r + "s");
+  }
+
   function repRangeText(slot) {
     if (!slot) return "Freestyle";
     var r = slot.repLow === slot.repHigh ? String(slot.repLow) : (slot.repLow + "–" + slot.repHigh);
@@ -1408,7 +1415,7 @@ window.App = window.App || {};
     exerciseById: exerciseById, exerciseName: exerciseName, familyName: familyName,
     workingSets: workingSets, countsForHistory: countsForHistory,
     lastPerformance: lastPerformance, exposures: exposures,
-    repRangeText: repRangeText, setsText: setsText, uid: uid,
+    repRangeText: repRangeText, setsText: setsText, uid: uid, restText: restText,
     prsForSet: prsForSet, prLabel: prLabel, prAllLabels: prAllLabels,
     priorSetsLive: priorSetsLive,
     recomputeSessionPRs: recomputeSessionPRs, recomputeAllPRs: recomputeAllPRs,

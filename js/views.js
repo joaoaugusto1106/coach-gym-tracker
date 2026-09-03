@@ -1626,6 +1626,26 @@ window.App = window.App || {};
       el("p", { class: "hint", text: "Used by the plate maths — tap a barbell exercise's name during a session." })
     ]));
 
+    // ---- Rest timer -------------------------------------------------
+    // The value was seeded and read but had no control, so it was really a
+    // hardcoded 2:30 wearing a setting's clothes. 2:30 suits accessories and is
+    // short for a heavy top set, which is exactly when you want it longer.
+    var restSec = set.restTimerDefaultSec || 150;
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Rest timer" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "After a working set" }),
+        el("b", { text: M.restText(restSec) })
+      ]),
+      el("div", { class: "seg wide" }, [60, 90, 120, 150, 180, 240, 300].map(function (n) {
+        var b = el("button", { class: "segbtn" + (n === restSec ? " on" : ""), type: "button",
+          "aria-pressed": n === restSec ? "true" : "false",
+          onclick: function () { set.restTimerDefaultSec = n; S.save(); render(); } }, [M.restText(n)]);
+        return b;
+      })),
+      el("p", { class: "hint", text: "Starts on its own after a working set — never after a warm-up or a drop set. It is a prompt, not a rule: the next set is yours to start whenever you want." })
+    ]));
+
     // ---- Apple Health ----------------------------------------------
     var loggedCount = st.sessions.filter(function (x) { return x.healthLogged; }).length;
     nodes.push(el("div", { class: "card" }, [

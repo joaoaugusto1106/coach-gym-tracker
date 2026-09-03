@@ -205,6 +205,12 @@
   eq("no history → none / confidence none",
     [M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).tone,
      M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).confidence], ["none", "none"]);
+  // --- rest timer formatting ---
+  eq("rest timer shows minutes:seconds", [M.restText(150), M.restText(90), M.restText(300)], ["2:30", "1:30", "5:00"]);
+  eq("under a minute stays in seconds", M.restText(45), "45s");
+  eq("pads the seconds", M.restText(125), "2:05");
+  eq("zero and rubbish do not produce NaN", [M.restText(0), M.restText(null), M.restText(undefined)], ["0s", "0s", "0s"]);
+
   // --- deload week ---
   // The last week of a phase is the program, not a mood: it is allowed to set
   // the target. But it only ever overrides "add load", and it never rewrites

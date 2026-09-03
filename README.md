@@ -241,6 +241,10 @@ Load increments default to 2 kg for dumbbells, 2.5 kg otherwise, and are configu
 exercise (tap the exercise name during a session). The setting drives both the weight
 stepper and the "add load" target.
 
+The **rest timer** starts on its own after a working set — never after a warm-up or a drop set
+— and is set in More → Rest timer, from 1:00 to 5:00. It defaults to 2:30, which suits
+accessories and is short for a heavy top set. It is a prompt, not a rule.
+
 ## History, Week and Exercises
 
 The History tab has three sections.
