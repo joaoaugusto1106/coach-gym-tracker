@@ -559,6 +559,60 @@ window.App = window.App || {};
     return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
   }
 
+  // ---- custom exercises ---------------------------------------------------
+  // The seed catalog is 56 lifts. A real gym has a machine it does not cover,
+  // and without this the honest options were to lie (log it as something else)
+  // or not log it, both of which corrupt the history the whole app reasons
+  // from. A custom exercise is a first-class one: it swaps, it recalls, it
+  // holds PRs, and it survives export/import like any other.
+  var EQUIPMENT = ["barbell", "dumbbell", "machine", "cable", "smith", "bodyweight"];
+
+  function slugifyExerciseId(name, taken) {
+    var base = String(name || "").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "exercise";
+    var id = base, n = 2;
+    while (taken[id]) { id = base + "-" + n; n++; }
+    return id;
+  }
+
+  function addCustomExercise(state, d) {
+    var name = String((d && d.name) || "").trim().replace(/\s+/g, " ");
+    if (!name) return { ok: false, error: "Give it a name." };
+    if (name.length > 60) return { ok: false, error: "That name is too long — keep it under 60 characters." };
+
+    var existing = (state.exercises || []);
+    var clash = existing.filter(function (e) {
+      return e.name.toLowerCase() === name.toLowerCase();
+    })[0];
+    if (clash) return { ok: false, error: "You already have an exercise called " + clash.name + ".", existingId: clash.id };
+
+    var muscleGroup = (App.MUSCLES.indexOf(d.muscleGroup) >= 0) ? d.muscleGroup : "core";
+    var equipment = (EQUIPMENT.indexOf(d.equipment) >= 0) ? d.equipment : "machine";
+    var taken = {};
+    existing.forEach(function (e) { taken[e.id] = true; });
+
+    var ex = {
+      id: slugifyExerciseId(name, taken),
+      name: name,
+      muscleGroup: muscleGroup,
+      equipment: equipment,
+      // Optional. Set it and the exercise joins that family's swap list, so a
+      // gym-specific machine can stand in for the lift it actually replaces.
+      movementFamilyId: d.movementFamilyId || null,
+      movementPattern: null,
+      secondaryMuscles: [],
+      defaultLoadIncrementKg: (d.incrementKg != null && !isNaN(d.incrementKg))
+        ? Number(d.incrementKg)
+        : (equipment === "dumbbell" ? 2 : 2.5),
+      referenceImage: null,
+      active: true,
+      userNote: "",
+      custom: true                       // so the UI can say where it came from
+    };
+    state.exercises = existing.concat([ex]);
+    return { ok: true, exercise: ex };
+  }
+
   // ---- cardio: the easy Zone 2 rides the program asks for -----------------
   // Deliberately thin. This is not a training log for cycling: it exists so the
   // one or two easy rides a week the program calls for are visible next to the
@@ -1405,6 +1459,7 @@ window.App = window.App || {};
     checkinFor: checkinFor, recoveryReadingFor: recoveryReadingFor,
     recoveryBaselines: recoveryBaselines, compareToBaseline: compareToBaseline,
     readiness: readiness, todayAdjustment: todayAdjustment, deloadInfo: deloadInfo,
+    addCustomExercise: addCustomExercise, EQUIPMENT: EQUIPMENT,
     cardioInWeek: cardioInWeek, cardioSummary: cardioSummary,
     addCardio: addCardio, removeCardio: removeCardio,
     recoverySnapshotFor: recoverySnapshotFor, recoveryCoverage: recoveryCoverage,

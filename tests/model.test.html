@@ -205,6 +205,54 @@
   eq("no history → none / confidence none",
     [M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).tone,
      M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).confidence], ["none", "none"]);
+  // --- custom exercises ---
+  // The seed catalog cannot cover every gym. A custom exercise has to be a
+  // first-class one or the history it feeds is worthless.
+  (function () {
+    function stEx() { return { exercises: App.EXERCISE_SEED.map(function (e) { return JSON.parse(JSON.stringify(e)); }) }; }
+
+    var st = stEx();
+    var n0 = st.exercises.length;
+    var r = M.addCustomExercise(st, { name: "Plate-loaded chest press", muscleGroup: "chest", equipment: "machine" });
+    ok("creates the exercise", r.ok === true);
+    eq("and adds exactly one", st.exercises.length, n0 + 1);
+    eq("id is derived from the name", r.exercise.id, "plate-loaded-chest-press");
+    eq("it is marked as yours", r.exercise.custom, true);
+    eq("machines step 2.5 kg by default", r.exercise.defaultLoadIncrementKg, 2.5);
+    eq("dumbbells step 2 kg", M.addCustomExercise(stEx(), { name: "DB thing", equipment: "dumbbell" }).exercise.defaultLoadIncrementKg, 2);
+
+    // ids must never collide, or two exercises share a history
+    var st2 = stEx();
+    M.addCustomExercise(st2, { name: "Row machine" });
+    var dup = M.addCustomExercise(st2, { name: "row MACHINE" });
+    eq("a duplicate name is refused, whatever the case", dup.ok, false);
+    ok("and it says which one you already have", /Row machine/.test(dup.error));
+    eq("and nothing is added", st2.exercises.length, App.EXERCISE_SEED.length + 1);
+
+    // a name that slugifies to an existing id must still get a unique one
+    var st3 = stEx();
+    M.addCustomExercise(st3, { name: "Zercher hold" });
+    var second = M.addCustomExercise(st3, { name: "Zercher  hold!" });
+    ok("a different name that slugifies the same still gets a unique id",
+      second.ok && second.exercise.id !== "zercher-hold");
+
+    eq("an empty name is refused", M.addCustomExercise(stEx(), { name: "   " }).ok, false);
+    ok("an absurd name is refused", M.addCustomExercise(stEx(), { name: "x".repeat(120) }).ok === false);
+    eq("an unknown muscle group falls back rather than storing junk",
+      M.addCustomExercise(stEx(), { name: "Thing", muscleGroup: "spleen" }).exercise.muscleGroup, "core");
+    eq("an unknown equipment falls back too",
+      M.addCustomExercise(stEx(), { name: "Thing2", equipment: "trebuchet" }).exercise.equipment, "machine");
+    eq("no family by default", M.addCustomExercise(stEx(), { name: "Thing3" }).exercise.movementFamilyId, null);
+    eq("a family can be set so it joins that swap list",
+      M.addCustomExercise(stEx(), { name: "Thing4", movementFamilyId: "flat-press" }).exercise.movementFamilyId, "flat-press");
+
+    // and it behaves like any other exercise afterwards
+    var st4 = stEx();
+    var made = M.addCustomExercise(st4, { name: "Belt squat" }).exercise;
+    eq("it is findable by id like any seeded lift", M.exerciseById(st4, made.id).name, "Belt squat");
+    eq("and names resolve through the normal path", M.exerciseName(st4, made.id), "Belt squat");
+  })();
+
   // --- rest timer formatting ---
   eq("rest timer shows minutes:seconds", [M.restText(150), M.restText(90), M.restText(300)], ["2:30", "1:30", "5:00"]);
   eq("under a minute stays in seconds", M.restText(45), "45s");

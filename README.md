@@ -193,6 +193,25 @@ importEvents[] backups[]
   now the app only noticed a full disk *after* a write failed; this is the warning before that.
   Revisit IndexedDB if that warning ever appears with the backups already trimmed.
 
+## Exercises the catalog doesn't have
+
+The seed catalog is 56 lifts. A real gym has a machine it doesn't cover, and the honest options
+without this were to log it as something it isn't or not log it — both of which put wrong data
+into the history everything else reasons from.
+
+During a session: **Add exercise → "Not in the list — create one"**. Name it, say what it trains
+and what it's loaded with (that sets the weight step: 2 kg for dumbbells, 2.5 kg otherwise).
+
+**"Swaps with" is the option worth understanding.** Leave it blank and the exercise stands alone.
+Pick a movement family and it joins that family's swap list, so a gym-specific machine can stand
+in for the lift it actually replaces — while still keeping its own weights, history and PRs, and
+never being compared against them.
+
+A custom exercise is a first-class one from then on: it recalls, it carries progression
+suggestions, it holds PRs, it appears in History and the weekly review, and it survives
+export/import. Duplicate names are refused whatever the case, and two exercises can never share
+an id.
+
 ## Variants A / B / C
 
 A 6-week phase is a block, and the block changes what you actually lift. The phase number

@@ -997,6 +997,26 @@ window.App = window.App || {};
       sel.appendChild(og);
     });
     sh.body.appendChild(sel);
+    function pushEntry(id) {
+      var ex = M.exerciseById(st, id);
+      as.entries.push({
+        id: M.uid("e"), planSlotId: null, movementFamilyId: ex ? ex.movementFamilyId : null,
+        prescribedExerciseId: id, exerciseId: id, altIds: [],
+        slot: null, wasSwapped: false, substitutionReason: null, note: "",
+        order: as.entries.length, sets: []
+      });
+      as.updatedAt = U.nowISO();
+      S.save(); sh.close(); render();
+    }
+
+    // The catalog will not have every machine in every gym. Without this the
+    // options are to log it as something it is not, or not log it -- and both
+    // put wrong data into the history everything else is derived from.
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+      sh.close();
+      setTimeout(function () { newExerciseSheet(st, as, pushEntry); }, 220);
+    } }, [icon("plus", 15), " Not in the list — create one"]));
+
     sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
       var id = sel.value; if (!id) return;
       var ex = M.exerciseById(st, id);
@@ -1010,6 +1030,52 @@ window.App = window.App || {};
       S.save(); sh.close(); render();
     } }, ["Add to session"]));
     sh.open();
+  }
+
+  /* Creating an exercise the catalog does not have. Kept to what actually
+     changes behaviour: the name, what it trains, and what it is loaded with
+     (which sets the weight step). The movement family is optional and is the
+     one that earns its place -- set it and this exercise joins that family's
+     swap list, so a gym-specific machine can stand in for the lift it
+     replaces, with its own separate weights and PRs. */
+  function newExerciseSheet(st, as, onCreated) {
+    var sh = App.ui.sheet("New exercise");
+
+    var name = el("input", { type: "text", placeholder: "e.g. Plate-loaded chest press", "aria-label": "Exercise name" });
+    var mg = el("select", { class: "bigselect", "aria-label": "Muscle group" },
+      App.MUSCLES.map(function (m) { return el("option", { value: m, text: m.charAt(0).toUpperCase() + m.slice(1) }); }));
+    var eq = el("select", { class: "bigselect", "aria-label": "Equipment" },
+      M.EQUIPMENT.map(function (e) { return el("option", { value: e, text: e.charAt(0).toUpperCase() + e.slice(1) }); }));
+    var fam = el("select", { class: "bigselect", "aria-label": "Movement family" },
+      [el("option", { value: "", text: "No family — stands alone" })].concat(
+        (st.movementFamilies || []).slice()
+          .sort(function (a, b) { return a.name < b.name ? -1 : 1; })
+          .map(function (f) { return el("option", { value: f.id, text: f.name }); })));
+
+    sh.body.appendChild(el("div", { class: "kv" }, [
+      el("label", { class: "rowb" }, [el("span", { text: "Name" }), name]),
+      el("label", { class: "rowb" }, [el("span", { text: "Trains" }), mg]),
+      el("label", { class: "rowb" }, [el("span", { text: "Loaded with" }), eq]),
+      el("label", { class: "rowb" }, [el("span", { text: "Swaps with" }), fam])
+    ]));
+    sh.body.appendChild(el("p", { class: "hint", text: "\u201cSwaps with\u201d is optional. Pick a family and this shows up as a one-tap alternative for those lifts \u2014 it still keeps its own weights, history and PRs, and is never compared against them." }));
+    var err = el("p", { class: "hint warn-text", text: "" });
+    sh.body.appendChild(err);
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var res = M.addCustomExercise(st, {
+        name: name.value, muscleGroup: mg.value, equipment: eq.value,
+        movementFamilyId: fam.value || null
+      });
+      if (!res.ok) { err.textContent = res.error; return; }
+      S.save();
+      sh.close();
+      App.ui.toast("Added " + res.exercise.name);
+      if (onCreated) onCreated(res.exercise.id); else render();
+    } }, ["Create and add"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Cancel"]));
+    sh.open();
+    setTimeout(function () { try { name.focus(); } catch (e) {} }, 120);
   }
 
   // ==================================================================
