@@ -1321,7 +1321,7 @@ window.App = window.App || {};
       ]));
     }
 
-    var cw = M.cardioSummary(st, weekIndex);
+    var cw = M.cardioSummary(st, wi);
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Easy rides" }),
       el("div", { class: "rowb" }, [
@@ -1460,10 +1460,15 @@ window.App = window.App || {};
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Every session" }),
       el("div", { class: "exlist" }, prog.slice().reverse().map(function (p) {
+        // Same reason the records card and the chart switched: "0 kg × 15 …
+        // est. 1RM 0" under a hint explaining there is no weight to record
+        // reads like the screen is broken.
         return el("a", { class: "exrow linkrow", href: "#/session/" + p.sessionId }, [
-          el("div", { class: "exrow-name", text: M.shortDate(p.date) + " · " + p.topWeight + " kg × " + p.repsAtTop }),
+          el("div", { class: "exrow-name", text: bw
+            ? M.shortDate(p.date) + " · " + p.repsAtTop + " reps top set"
+            : M.shortDate(p.date) + " · " + p.topWeight + " kg × " + p.repsAtTop }),
           el("div", { class: "exrow-target", text: "Phase " + p.phase + " Wk " + p.week + " · " + p.setCount +
-            " working sets · " + p.totalReps + " total reps · est. 1RM " + p.bestE1rm })
+            " working sets · " + p.totalReps + " total reps" + (bw ? "" : " · est. 1RM " + p.bestE1rm) })
         ]);
       }))
     ]));
@@ -2407,7 +2412,11 @@ window.App = window.App || {};
               M.humanDate(c.date)
             ]),
             el("div", { class: "exrow-target", text: "energy " + c.energy + " · soreness " + c.soreness +
-              " · work " + c.workdayLoad.replace("-", " ") + (c.painOrIllness ? " · pain/illness flagged" : "") +
+              // model.js already reads this field defensively; the view did not,
+              // so a check-in from a hand-edited import with a number or a
+              // missing value here took the whole Recovery screen down.
+              " · work " + String(c.workdayLoad == null ? "unknown" : c.workdayLoad).replace(/-/g, " ") +
+              (c.painOrIllness ? " · pain/illness flagged" : "") +
               (c.note ? " · " + c.note : "") })
           ]);
         }))

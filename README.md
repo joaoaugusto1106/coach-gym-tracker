@@ -209,6 +209,9 @@ their hand, the suite says no.
   so it counts against a conservative 5 MB rather than pretending to know the real limit. Until
   now the app only noticed a full disk *after* a write failed; this is the warning before that.
   Revisit IndexedDB if that warning ever appears with the backups already trimmed.
+  Sizes are **bytes**, not string length: a JavaScript string's `.length` counts UTF-16 code
+  units and browsers charge about two bytes each, so measuring in characters would have doubled
+  the apparent headroom and put the warning past the point where writes already fail.
 
 ## Exercises the catalog doesn't have
 

@@ -311,8 +311,15 @@ App.PROGRAM_SEED = {
   // effectiveStartDate is filled from settings.phaseStartDate on seed / migration
   phaseLengthWeeks: 6,
   trainingDayOrder: ["push", "lower", "pull", "arms"],
-  // `days` stays as variant A: it is what every older reader of a program
-  // version expects, and the fallback when a version carries no variants.
-  days: VARIANT_A_DAYS,
+  /* `days` stays as variant A: it is what every older reader of a program
+     version expects, and the fallback when a version carries no variants.
+
+     It is a COPY, not the same array. Per-slot customisations -- "make this
+     swap the default", a per-slot load step -- are written through
+     activeProgram(), which hands back the current variant's days. Sharing the
+     reference made a fresh install write through to both while a migrated one
+     (where variants[0].days is a deep copy of the old days) wrote to only one,
+     so the same action behaved differently depending on how you got here. */
+  days: JSON.parse(JSON.stringify(VARIANT_A_DAYS)),
   variants: App.PROGRAM_VARIANT_SEED
 };

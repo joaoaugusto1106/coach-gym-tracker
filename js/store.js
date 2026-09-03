@@ -180,6 +180,10 @@ window.App = window.App || {};
         avgHrBpm: isFinite(hr) && hr > 0 ? hr : null,
         effort: c.effort || "easy",
         note: typeof c.note === "string" ? c.note : "",
+        // Set when you confirm a ride reached Apple Health. Rebuilding each
+        // row from a whitelist quietly dropped it on every load, so the mark
+        // never survived a reload and invited logging the same ride twice.
+        healthLogged: !!c.healthLogged,
         createdAt: c.createdAt || now || U.nowISO()
       };
     }).filter(Boolean);
@@ -369,6 +373,11 @@ window.App = window.App || {};
      fails, since the existing handling only notices afterwards. */
   var ASSUMED_QUOTA_BYTES = 5 * 1024 * 1024;
   var WARN_AT = 0.7;                       // ~3.5 MB, the figure in the README
+  // A JS string's .length is UTF-16 code units, and browsers charge roughly two
+  // bytes per unit against the quota. Comparing raw length against a byte
+  // budget doubled the apparent headroom, which put the warning threshold above
+  // the point where writes already fail -- so it could never fire in time.
+  var BYTES_PER_UNIT = 2;
 
   function footprint() {
     var main = 0, backups = 0, lkg = 0, other = 0;
@@ -382,12 +391,17 @@ window.App = window.App || {};
         else other += n;
       }
     } catch (e) { /* storage unavailable -- report zeroes rather than throwing */ }
+    main *= BYTES_PER_UNIT; backups *= BYTES_PER_UNIT;
+    lkg *= BYTES_PER_UNIT; other *= BYTES_PER_UNIT;
     var ours = main + backups + lkg;
+    // `other` is somebody else's key on this origin, but it is charged to the
+    // same quota, so it counts toward how close a write is to failing.
+    var onOrigin = ours + other;
     return {
       mainBytes: main, backupBytes: backups, lkgBytes: lkg, otherBytes: other,
-      totalBytes: ours, assumedQuotaBytes: ASSUMED_QUOTA_BYTES,
-      fraction: ours / ASSUMED_QUOTA_BYTES,
-      shouldWarn: ours / ASSUMED_QUOTA_BYTES >= WARN_AT
+      totalBytes: ours, originBytes: onOrigin, assumedQuotaBytes: ASSUMED_QUOTA_BYTES,
+      fraction: onOrigin / ASSUMED_QUOTA_BYTES,
+      shouldWarn: onOrigin / ASSUMED_QUOTA_BYTES >= WARN_AT
     };
   }
 
