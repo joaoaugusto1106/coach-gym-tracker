@@ -205,6 +205,21 @@
   eq("no history → none / confidence none",
     [M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).tone,
      M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).confidence], ["none", "none"]);
+  // --- date validation ---
+  // Every phase and week label in the app derives from one date string, so a
+  // format check alone is not enough: "2026-13-45" means nothing, and
+  // "2026-02-30" silently becomes 2 March.
+  eq("a real date passes", M.isValidISODate("2026-09-03"), true);
+  eq("a leap day in a leap year passes", M.isValidISODate("2024-02-29"), true);
+  eq("a leap day in a common year does not", M.isValidISODate("2026-02-29"), false);
+  eq("30 February does not silently roll forward", M.isValidISODate("2026-02-30"), false);
+  eq("month 13 is refused", M.isValidISODate("2026-13-01"), false);
+  eq("day 45 is refused", M.isValidISODate("2026-01-45"), false);
+  eq("day 00 is refused", M.isValidISODate("2026-01-00"), false);
+  eq("the wrong shape is refused", [M.isValidISODate("3/9/2026"), M.isValidISODate("2026-9-3")], [false, false]);
+  eq("rubbish is refused", [M.isValidISODate(""), M.isValidISODate(null), M.isValidISODate("banana")], [false, false, false]);
+  eq("31 December works", M.isValidISODate("2026-12-31"), true);
+
   // --- custom exercises ---
   // The seed catalog cannot cover every gym. A custom exercise has to be a
   // first-class one or the history it feeds is worthless.

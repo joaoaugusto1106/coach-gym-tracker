@@ -59,6 +59,20 @@ window.App = window.App || {};
     return { phase: phase, week: week, weeksIn: weeksIn, isDeloadWeek: week === len };
   }
 
+  /* A real calendar date, not just something shaped like one.
+     "2026-13-45" passes a format check and then quietly means nothing;
+     "2026-02-30" is worse, because JavaScript rolls it forward to 2 March and
+     the app carries on with a date the user never typed. Round-tripping is the
+     only honest test. */
+  function isValidISODate(iso) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return false;
+    var parts = String(iso).split("-");
+    var y = +parts[0], m = +parts[1], d = +parts[2];
+    if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+    var dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+  }
+
   function addDays(iso, n) {
     var d = isoToDate(iso);
     d.setDate(d.getDate() + n);
@@ -1518,7 +1532,7 @@ window.App = window.App || {};
     lastPerformance: lastPerformance, exposures: exposures,
     repRangeText: repRangeText, setsText: setsText, uid: uid, restText: restText,
     MAX_SET_WEIGHT_KG: MAX_SET_WEIGHT_KG, MAX_SET_REPS: MAX_SET_REPS,
-    isBodyweightHistory: isBodyweightHistory,
+    isBodyweightHistory: isBodyweightHistory, isValidISODate: isValidISODate,
     prsForSet: prsForSet, prLabel: prLabel, prAllLabels: prAllLabels,
     priorSetsLive: priorSetsLive,
     recomputeSessionPRs: recomputeSessionPRs, recomputeAllPRs: recomputeAllPRs,

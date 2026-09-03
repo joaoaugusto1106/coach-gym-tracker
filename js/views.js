@@ -1664,8 +1664,17 @@ window.App = window.App || {};
       el("div", { class: "rowb" }, [el("span", { text: "Phase start date" }), el("b", { text: set.phaseStartDate })]),
       el("button", { class: "btn ghost sm", type: "button", onclick: function () {
         var v = prompt("Phase start date (YYYY-MM-DD) — Perth calendar. Past sessions keep their recorded phase/week.", set.phaseStartDate);
-        if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) { set.phaseStartDate = v; S.save(); render(); }
-        else if (v != null) App.ui.toast("Use the format 2026-09-01");
+        if (v == null) return;
+        v = String(v).trim();
+        // A format check alone let "2026-13-45" through (silently stuck at
+        // phase 1 forever) and "2026-02-30" through as 2 March, a date never
+        // typed. And every phase and week label is derived from this one value.
+        if (!M.isValidISODate(v)) { App.ui.toast("That isn't a real date — use the format 2026-09-01"); return; }
+        var today = M.perthTodayISO();
+        var yearAhead = M.addDays(today, 365), tenBack = M.addDays(today, -3650);
+        if (v > yearAhead) { App.ui.toast("That's more than a year away — the block would never start"); return; }
+        if (v < tenBack) { App.ui.toast("That's over ten years ago, which would put you in phase 80-something"); return; }
+        set.phaseStartDate = v; S.save(); render();
       } }, ["Change phase start date"])
     ]));
 
