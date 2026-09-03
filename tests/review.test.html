@@ -194,6 +194,43 @@
   eq("warm-up-only exercises are excluded", hist.filter(function (h) { return h.exerciseId === "ohp"; }).length, 0);
   eq("no duplicates across sessions", hist.length, 2);
 
+  // --- cardio: the easy Zone 2 rides ---
+  (function () {
+    var settings = { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 };
+    function stC(rides) { return { settings: settings, sessions: [], cardioSessions: rides }; }
+    function ride(date, mins, hr) { return { id: "c" + date + mins, date: date, kind: "bike", minutes: mins, avgHrBpm: hr == null ? null : hr }; }
+
+    // week 0 = 2026-01-01 .. 2026-01-07
+    var stc = stC([ride("2026-01-02", 45, 132), ride("2026-01-05", 50, 128), ride("2026-01-20", 40, null)]);
+    var w0 = M.cardioSummary(stc, 0);
+    eq("counts only the rides inside the week", w0.rides, 2);
+    eq("sums their minutes", w0.minutes, 95);
+    eq("averages heart rate over the rides that have one", w0.avgHrBpm, 130);
+    eq("one or two rides is on target", w0.onTarget, true);
+    eq("nothing to flag when on target", w0.note, "");
+
+    var none = M.cardioSummary(stC([]), 0);
+    eq("a week with no rides reports zero", [none.rides, none.minutes], [0, 0]);
+    eq("and no average HR to report", none.avgHrBpm, null);
+    eq("an empty week is off target", none.onTarget, false);
+    ok("and says so without calling it a failure",
+      /optional/.test(none.note) && /choice rather than a failure/.test(none.note));
+
+    var many = M.cardioSummary(stC([ride("2026-01-02", 40), ride("2026-01-03", 40),
+      ride("2026-01-04", 40), ride("2026-01-05", 40)]), 0);
+    eq("four rides is over target", many.onTarget, false);
+    ok("and the note ties it back to lifting recovery", /recover/.test(many.note));
+
+    var live = { settings: settings, sessions: [], cardioSessions: [] };
+    var added = M.addCardio(live, { date: "2026-01-02", minutes: 45, avgHrBpm: 130 });
+    eq("addCardio stores the ride", live.cardioSessions.length, 1);
+    ok("and gives it an id", !!added.id);
+    eq("a blank HR is stored as null, not 0",
+      M.addCardio(live, { date: "2026-01-03", minutes: 30, avgHrBpm: "" }).avgHrBpm, null);
+    eq("removeCardio removes it", [M.removeCardio(live, added.id), live.cardioSessions.length], [true, 1]);
+    eq("removing an unknown id changes nothing", M.removeCardio(live, "nope"), false);
+  })();
+
   document.getElementById("summary").innerHTML =
     (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
 })();

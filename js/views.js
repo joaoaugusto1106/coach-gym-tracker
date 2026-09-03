@@ -154,6 +154,21 @@ window.App = window.App || {};
     ]));
 
     if (!active) {
+      var wkIdx = M.weekIndexOf(st.settings, U.perthDateISO());
+      var cs = M.cardioSummary(st, wkIdx);
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "Easy rides this week" }),
+        el("div", { class: "rowb" }, [
+          el("span", { text: cs.rides
+            ? cs.rides + (cs.rides === 1 ? " ride · " : " rides · ") + cs.minutes + " min"
+            : "None yet" }),
+          el("b", { class: cs.onTarget ? "up" : "", text: cs.rides + " / " + cs.targetLow + "–" + cs.targetHigh })
+        ]),
+        el("button", { class: "btn ghost sm", type: "button",
+          onclick: function () { cardioSheet(st); } }, ["Log an easy ride"]),
+        el("p", { class: "hint", text: "Optional. Zone 2 means you could hold a conversation — if a ride leaves you tired for the next lifting day, it was too hard." })
+      ]));
+
       nodes.push(el("div", { class: "card" }, [
         el("span", { class: "eyebrow", text: "Train a different day?" }),
         el("p", { class: "hint", text: "Picking a day here doesn't move your rotation. When you finish it, the app asks whether it should count." }),
@@ -827,6 +842,44 @@ window.App = window.App || {};
     ]);
   }
 
+  /* Logging a ride. Four fields, three of them optional — the program asks for
+     "one or two easy rides", not a training plan for cycling, and a form that
+     asked for more would just stop it being logged at all. */
+  function cardioSheet(st) {
+    var sh = App.ui.sheet("Log an easy ride");
+
+    var mins = el("input", { type: "number", inputmode: "numeric", min: "1", max: "600",
+      value: "45", "aria-label": "Minutes" });
+    var hr = el("input", { type: "number", inputmode: "numeric", min: "40", max: "220",
+      placeholder: "optional", "aria-label": "Average heart rate" });
+    var note = el("input", { type: "text", placeholder: "optional", "aria-label": "Note" });
+
+    sh.body.appendChild(el("div", { class: "kv" }, [
+      el("label", { class: "rowb" }, [el("span", { text: "Minutes" }), mins]),
+      el("label", { class: "rowb" }, [el("span", { text: "Average HR" }), hr]),
+      el("label", { class: "rowb" }, [el("span", { text: "Note" }), note])
+    ]));
+    var err = el("p", { class: "hint", text: "" });
+    sh.body.appendChild(err);
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var m = parseInt(mins.value, 10);
+      if (!(m > 0 && m <= 600)) { err.textContent = "Minutes has to be a number between 1 and 600."; return; }
+      var h = hr.value === "" ? null : parseInt(hr.value, 10);
+      if (h != null && !(h >= 40 && h <= 220)) {
+        err.textContent = "That heart rate looks wrong (" + hr.value + "). Leave it blank if you did not record one.";
+        return;
+      }
+      M.addCardio(st, { minutes: m, avgHrBpm: h, note: note.value.trim(), kind: "bike", effort: "easy" });
+      S.save();
+      sh.close();
+      App.ui.toast("Ride logged");
+      render();
+    } }, ["Save ride"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Cancel"]));
+    sh.open();
+  }
+
   function adjustmentBlock(adj) {
     return el("div", { class: "todayadj adj-" + adj.status }, [
       icon(adj.status === "red" ? "warn" : "info", 15),
@@ -1128,6 +1181,25 @@ window.App = window.App || {};
         el("p", { class: "hint", text: "Change in your best estimated 1RM for that exercise since the previous time you did it." })
       ]));
     }
+
+    var cw = M.cardioSummary(st, weekIndex);
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Easy rides" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: cw.rides ? cw.rides + (cw.rides === 1 ? " ride" : " rides") : "None" }),
+        el("b", { class: cw.onTarget ? "up" : "", text: cw.minutes + " min" })
+      ]),
+      cw.avgHrBpm ? el("div", { class: "rowb" }, [
+        el("span", { text: "Average HR" }), el("b", { text: cw.avgHrBpm + " bpm" })
+      ]) : null,
+      cw.note ? el("p", { class: "hint", text: cw.note }) : null,
+      cw.sessions.length ? el("div", { class: "exlist" }, cw.sessions.map(function (c) {
+        return el("div", { class: "exrow" }, [
+          el("div", { class: "exrow-name", text: M.humanDate(c.date) + (c.note ? " · " + c.note : "") }),
+          el("div", { class: "exrow-target", text: c.minutes + " min" + (c.avgHrBpm ? " · " + c.avgHrBpm + " bpm" : "") })
+        ]);
+      })) : null
+    ]));
 
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Worth knowing" }),

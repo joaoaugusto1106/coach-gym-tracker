@@ -59,6 +59,7 @@ window.App = window.App || {};
       activeSession: null,
       sessions: [],
       bodyweights: [], nutritionDays: [], recoveryReadings: [], readinessCheckins: [],
+      cardioSessions: [],
       importEvents: [], backups: []
     };
   }
@@ -145,6 +146,9 @@ window.App = window.App || {};
     s.nutritionDays = s.nutritionDays || s.nutrition || [];
     s.recoveryReadings = s.recoveryReadings || s.recovery || [];
     s.readinessCheckins = s.readinessCheckins || [];
+    // v1 kept a loose `cardio` list. It used to be deleted here, which is why
+    // rides had nowhere to live; carry anything that was in there across.
+    s.cardioSessions = s.cardioSessions || s.cardio || [];
     s.importEvents = s.importEvents || [];
     s.backups = s.backups || [];
     delete s.nutrition; delete s.recovery; delete s.cardio;
@@ -210,7 +214,8 @@ window.App = window.App || {};
     if (!s.meta) s.meta = seedState().meta;
     if (!s.settings) s.settings = seedState().settings;
     ["sessions", "bodyweights", "nutritionDays", "recoveryReadings", "readinessCheckins",
-     "importEvents", "backups", "exercises", "programVersions", "movementFamilies"].forEach(function (k) {
+     "cardioSessions", "importEvents", "backups", "exercises", "programVersions",
+     "movementFamilies"].forEach(function (k) {
       if (!Array.isArray(s[k])) s[k] = [];
     });
     if (!s.programVersions.length) {
@@ -263,6 +268,15 @@ window.App = window.App || {};
     });
     if (Array.isArray(s.programVersions) && !s.programVersions.length) errors.push("no program versions");
 
+    (s.cardioSessions || []).forEach(function (c, i) {
+      if (!c || !c.id) { errors.push("cardioSessions[" + i + "] has no id"); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date || "")) errors.push("cardio " + c.id + " bad date: " + c.date);
+      if (!(typeof c.minutes === "number" && c.minutes > 0 && c.minutes <= 600))
+        errors.push("cardio " + c.id + " implausible minutes: " + c.minutes);
+      if (c.avgHrBpm != null && !(typeof c.avgHrBpm === "number" && c.avgHrBpm >= 40 && c.avgHrBpm <= 220))
+        warnings.push("cardio " + c.id + " implausible avg HR: " + c.avgHrBpm);
+    });
+
     var exIds = {};
     (s.exercises || []).forEach(function (e) { if (e && e.id) exIds[e.id] = true; });
 
@@ -286,6 +300,7 @@ window.App = window.App || {};
       completedSessions: (s.sessions || []).filter(function (x) { return x.status === "completed"; }).length,
       programVersions: (s.programVersions || []).length,
       exercises: (s.exercises || []).length,
+      cardioSessions: (s.cardioSessions || []).length,
       lastSessionDate: (s.sessions || []).reduce(function (a, x) { return x.date > a ? x.date : a; }, ""),
       appVersion: s.meta && s.meta.appVersion,
       exportedAt: s.meta && s.meta.exportedAt

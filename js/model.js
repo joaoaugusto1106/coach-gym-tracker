@@ -551,6 +551,62 @@ window.App = window.App || {};
     return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
   }
 
+  // ---- cardio: the easy Zone 2 rides the program asks for -----------------
+  // Deliberately thin. This is not a training log for cycling: it exists so the
+  // one or two easy rides a week the program calls for are visible next to the
+  // lifting, and so a week with none of them says so.
+  var CARDIO_WEEKLY_TARGET_LOW = 1, CARDIO_WEEKLY_TARGET_HIGH = 2;
+
+  function cardioInWeek(state, weekIndex) {
+    var b = weekBounds(state.settings || {}, weekIndex);
+    return (state.cardioSessions || []).filter(function (c) {
+      return c && c.date >= b.start && c.date <= b.end;
+    }).sort(function (a, c) { return a.date < c.date ? -1 : 1; });
+  }
+
+  function cardioSummary(state, weekIndex) {
+    var list = cardioInWeek(state, weekIndex);
+    var minutes = list.reduce(function (a, c) { return a + (c.minutes || 0); }, 0);
+    var withHr = list.filter(function (c) { return c.avgHrBpm != null; });
+    var avgHr = withHr.length
+      ? Math.round(withHr.reduce(function (a, c) { return a + c.avgHrBpm; }, 0) / withHr.length)
+      : null;
+    var note;
+    if (!list.length) note = "No easy rides logged this week. The program asks for one or two — they are optional, and skipping them is a choice rather than a failure.";
+    else if (list.length < CARDIO_WEEKLY_TARGET_LOW) note = "";
+    else if (list.length > CARDIO_WEEKLY_TARGET_HIGH) note = list.length + " rides — more than the program asks for. Fine if they were genuinely easy; worth a look if they are eating into how you recover for lifting.";
+    else note = "";
+    return {
+      rides: list.length, minutes: minutes, avgHrBpm: avgHr,
+      targetLow: CARDIO_WEEKLY_TARGET_LOW, targetHigh: CARDIO_WEEKLY_TARGET_HIGH,
+      onTarget: list.length >= CARDIO_WEEKLY_TARGET_LOW && list.length <= CARDIO_WEEKLY_TARGET_HIGH,
+      note: note, sessions: list
+    };
+  }
+
+  function addCardio(state, entry) {
+    var c = {
+      id: uid("c"),
+      date: entry.date || perthTodayISO(),
+      kind: entry.kind || "bike",
+      minutes: Number(entry.minutes) || 0,
+      avgHrBpm: (entry.avgHrBpm === "" || entry.avgHrBpm == null) ? null : Number(entry.avgHrBpm),
+      effort: entry.effort || "easy",
+      note: entry.note || "",
+      createdAt: U.nowISO()
+    };
+    state.cardioSessions = state.cardioSessions || [];
+    state.cardioSessions.push(c);
+    state.cardioSessions.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    return c;
+  }
+
+  function removeCardio(state, id) {
+    var before = (state.cardioSessions || []).length;
+    state.cardioSessions = (state.cardioSessions || []).filter(function (c) { return c.id !== id; });
+    return state.cardioSessions.length !== before;
+  }
+
   // ---- Stage 3: volume, weekly review, per-exercise progress -------
   //
   // A "set" here is one logged WORKING set, counted once against the exercise's
@@ -1341,6 +1397,8 @@ window.App = window.App || {};
     checkinFor: checkinFor, recoveryReadingFor: recoveryReadingFor,
     recoveryBaselines: recoveryBaselines, compareToBaseline: compareToBaseline,
     readiness: readiness, todayAdjustment: todayAdjustment, deloadInfo: deloadInfo,
+    cardioInWeek: cardioInWeek, cardioSummary: cardioSummary,
+    addCardio: addCardio, removeCardio: removeCardio,
     recoverySnapshotFor: recoverySnapshotFor, recoveryCoverage: recoveryCoverage,
     activeProgram: activeProgram, programById: programById, programShortName: programShortName,
     variantForPhase: variantForPhase, applyVariant: applyVariant,

@@ -160,6 +160,7 @@ settings.mealPlan   the six checkpoints (time, label, detail) + kcal/protein tar
 bodyweights[]   entryId, date (Perth), kg, note
 nutritionDays[] date (Perth), checkpoints[] { index, id, state, largerPortion, at }
                 state = done | partial | skipped | none
+cardioSessions[]    id, date (Perth), kind (bike), minutes, avgHrBpm, effort, note
 readinessCheckins[] checkinId, date (Perth), energy, soreness, workdayLoad,
                     painOrIllness, note
 recoveryReadings[]  date (Perth), hrvMs, restingHrBpm, sleepHours   (filled by
@@ -316,6 +317,22 @@ This is the one place something other than your own logged sets is allowed to se
 and the reason is that it isn't a reaction to how you feel — it's the program. A block that
 told you to add load during its own deload week would be incoherent programming. Recovery, by
 contrast, still only ever adds a note underneath.
+
+## Easy rides
+
+The program asks for one or two easy Zone 2 bike sessions a week, and until now there was
+nowhere to put them — the v1 field was dropped during the schema migration and never rebuilt.
+
+Today carries a card showing the week's rides against the 1–2 target, and **Log an easy ride**
+takes minutes, an optional average heart rate and an optional note. Three of the four fields are
+optional on purpose: this is not a training log for cycling, and a longer form would just mean
+the ride never gets logged. An implausible heart rate is refused with the number you typed
+rather than stored.
+
+The weekly review shows the rides, total minutes and average heart rate. A week with none says
+so — and says that skipping them is a choice rather than a failure. More than two says so too,
+and ties it to the thing that actually matters: whether they are eating into how you recover for
+lifting.
 
 ## Recovery
 
