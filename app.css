@@ -233,7 +233,7 @@ button.chip{cursor:pointer}
 .notice.ok .ic{color:var(--accent)}
 .notice .linkbtn{margin-left:auto; font-size:13px}
 
-.savebar{position:fixed; left:0; right:0; bottom:calc(84px + env(safe-area-inset-bottom)); z-index:90;
+.savebar{position:fixed; left:0; right:0; bottom:calc(96px + env(safe-area-inset-bottom)); z-index:90;
   display:flex; align-items:center; gap:8px; padding:10px 16px;
   background:var(--warn); color:#fff; font-size:12.5px; font-weight:600; line-height:1.35}
 .savebar .ic{color:#fff}
@@ -500,3 +500,21 @@ button.linkrow{padding:9px 0}
 @media (max-width:360px){
   .seg.tiny .segb{padding:7px 4px; font-size:11px; letter-spacing:-.02em}
 }
+
+/* Three things can float above the tab bar, and more than one at a time: the
+   rest timer while you are resting, the "new version ready" bar, and the "not
+   saving" banner. They all sat at the same offset and simply covered each
+   other — the urgent banner hid the running timer completely, so a rest you
+   were timing just vanished. They stack instead.
+
+   The offsets are the measured heights (timer 47px, update bar 57px) plus a
+   10px gap. Placed at the end of the file so these win over the base `bottom`
+   on each element, which has the same specificity. */
+body.resting .updatebar{bottom:calc(153px + env(safe-area-inset-bottom))}
+body.resting .savebar{bottom:calc(153px + env(safe-area-inset-bottom))}
+body.has-update .savebar{bottom:calc(163px + env(safe-area-inset-bottom))}
+body.resting.has-update .savebar{bottom:calc(220px + env(safe-area-inset-bottom))}
+
+/* and the page gets enough room that the stack never covers the controls */
+body.has-update .content{padding-bottom:calc(167px + env(safe-area-inset-bottom))}
+body.resting.has-update .content{padding-bottom:calc(224px + env(safe-area-inset-bottom))}

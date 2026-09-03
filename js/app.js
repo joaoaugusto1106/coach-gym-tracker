@@ -138,9 +138,15 @@ window.App = window.App || {};
         else location.reload();
       } }, ["Reload"]),
       el("button", { class: "ub-btn ghost", type: "button", "aria-label": "dismiss",
-        onclick: function () { updateBar.remove(); updateBar = null; } }, [icon("x", 14)])
+        onclick: function () {
+          updateBar.remove(); updateBar = null;
+          document.body.classList.remove("has-update");
+        } }, [icon("x", 14)])
     ]);
     document.body.appendChild(updateBar);
+    // lets the rest timer and the save banner stack above this rather than
+    // sitting underneath it
+    document.body.classList.add("has-update");
   }
 
   function registerSW() {
