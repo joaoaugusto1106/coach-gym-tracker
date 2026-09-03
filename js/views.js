@@ -765,8 +765,15 @@ window.App = window.App || {};
     var barKg = (st.settings.barWeightKg == null) ? M.DEFAULT_BAR_KG : st.settings.barWeightKg;
     var lp = M.lastPerformance(st, entry.exerciseId);
     var sug = M.overloadSuggestion(st, entry.exerciseId, entry.slot);
-    var start = (sug.recommendation && sug.recommendation.base.targetWeightKg) ||
-      (lp && M.workingSets(lp.sets).length ? M.workingSets(lp.sets)[0].weightKg : barKg + 20);
+    // In a deload week the card says "Hold" while base.targetWeightKg still
+    // carries the increase it would have suggested -- deliberately, so the
+    // number is not lost. Seeding the plate maths from it would have the panel
+    // laying out 62.5 kg directly under a line telling you to stay at 60.
+    var lastTop = (lp && M.workingSets(lp.sets).length) ? M.workingSets(lp.sets)[0].weightKg : null;
+    var start = (sug.deloadHeld && lastTop != null)
+      ? lastTop
+      : ((sug.recommendation && sug.recommendation.base.targetWeightKg) ||
+         (lastTop != null ? lastTop : barKg + 20));
 
     var wrap = el("div", { class: "plateblock" });
     var out = el("div", { class: "plateout" });
@@ -1632,6 +1639,11 @@ window.App = window.App || {};
     sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
       var wv = parseFloat(d.weight), rv = parseInt(d.reps, 10);
       if (isNaN(wv) || wv < 0 || isNaN(rv) || rv < 1) { App.ui.toast("Check weight and reps"); return; }
+      // Same bounds as the in-session form. Editing history recomputes every
+      // PR, so an absurd value typed here produces exactly the unbeatable
+      // record and flattened chart the log-form bounds exist to prevent.
+      if (wv > M.MAX_SET_WEIGHT_KG) { App.ui.toast(wv + " kg looks like a typo — the limit is " + M.MAX_SET_WEIGHT_KG + " kg"); return; }
+      if (rv > M.MAX_SET_REPS) { App.ui.toast(rv + " reps looks like a typo — the limit is " + M.MAX_SET_REPS); return; }
       var rec = { weightKg: wv, reps: rv, type: d.type, rir: d.type === "working" ? d.rir : null, e1rm: M.epley(wv, rv), prFlags: [] };
       if (adding) { rec.id = M.uid("set"); rec.loggedAt = U.nowISO(); rec.note = null; entry.sets.push(rec); }
       else { entry.sets[index] = Object.assign(entry.sets[index], rec); }
@@ -2098,14 +2110,22 @@ window.App = window.App || {};
         var lo = m[0], hi = m.length > 1 ? m[1] : m[0];
         if (lo > hi) { var t = lo; lo = hi; hi = t; }
         if (lo < 800 || hi > 8000) { App.ui.toast("That range looks wrong — expected something between 800 and 8000 kcal"); return; }
-        st.settings.kcalTargetLow = lo; st.settings.kcalTargetHigh = hi; S.save(); render();
+        // The card reads M.mealPlan(st) -- i.e. settings.mealPlan -- so writing
+        // to settings.kcalTargetLow changed a key nothing displays.
+        if (!st.settings.mealPlan) st.settings.mealPlan = U.deepCopy(App.NUTRITION_SEED);
+        st.settings.mealPlan.kcalTargetLow = lo; st.settings.mealPlan.kcalTargetHigh = hi;
+        st.settings.kcalTargetLow = lo; st.settings.kcalTargetHigh = hi;   // keep the mirror in step
+        S.save(); render();
       } }, ["Change calorie target"]),
       el("button", { class: "btn ghost sm", type: "button", onclick: function () {
         var v = prompt("Daily protein target in grams", String(plan.proteinTarget));
         if (v == null) return;
         var n = parseInt(v, 10);
         if (isNaN(n) || n < 20 || n > 500) { App.ui.toast("Enter a protein target between 20 and 500 g"); return; }
-        st.settings.proteinTarget = n; S.save(); render();
+        if (!st.settings.mealPlan) st.settings.mealPlan = U.deepCopy(App.NUTRITION_SEED);
+        st.settings.mealPlan.proteinTarget = n;
+        st.settings.proteinTarget = n;
+        S.save(); render();
       } }, ["Change protein target"])
     ]));
 
@@ -2232,7 +2252,18 @@ window.App = window.App || {};
           "Losing:   -0.5 to -0.25",
           st.settings.bwTargetKgPerWeekLow + " to " + st.settings.bwTargetKgPerWeekHigh);
         if (v == null) return;
-        var nums = String(v).match(/-?\d+(?:\.\d+)?/g);
+        // "0.2-0.3" tokenised as ["0.2", "-0.3"], so asking to gain stored a
+        // band of -0.3 to 0.2 and reported losing weight as on target. The
+        // sibling calorie prompt teaches the hyphen form, so it has to work.
+        // Normalise every separator to | first; a hyphen only separates when a
+        // digit precedes it, which leaves a leading minus sign intact.
+        var nums = String(v)
+          .replace(/\s*(?:to|–|—|,)\s*/gi, "|")
+          .replace(/(\d)\s*-\s*/g, "$1|")
+          .split("|")
+          .map(function (x) { return parseFloat(x); })
+          .filter(function (x) { return !isNaN(x); });
+        if (!nums.length) nums = null;
         if (!nums || !nums.length) { App.ui.toast("Couldn't read that as a range"); return; }
         var lo = parseFloat(nums[0]), hi = nums.length > 1 ? parseFloat(nums[1]) : parseFloat(nums[0]);
         if (lo > hi) { var t2 = lo; lo = hi; hi = t2; }

@@ -147,8 +147,11 @@ window.App = window.App || {};
     s.recoveryReadings = s.recoveryReadings || s.recovery || [];
     s.readinessCheckins = s.readinessCheckins || [];
     // v1 kept a loose `cardio` list. It used to be deleted here, which is why
-    // rides had nowhere to live; carry anything that was in there across.
-    s.cardioSessions = s.cardioSessions || s.cardio || [];
+    // rides had nowhere to live; carry anything that was in there across --
+    // normalised, because those rows predate the shape and a missing id or a
+    // string duration would otherwise fail validation and take the whole
+    // migration down with it.
+    s.cardioSessions = normaliseCardio(s.cardioSessions || s.cardio || [], now);
     s.importEvents = s.importEvents || [];
     s.backups = s.backups || [];
     delete s.nutrition; delete s.recovery; delete s.cardio;
@@ -156,6 +159,30 @@ window.App = window.App || {};
     s.meta.migrationHistory.push({ from: 1, to: 2, at: now });
     s.schemaVersion = 2;
     return s;
+  }
+
+  /* Rides from a v1 file, or hand-edited since, may be missing an id or carry
+     a duration as a string. Salvage what is salvageable and drop only what is
+     genuinely unusable -- refusing an entire import over one bad row is the
+     worse failure. */
+  function normaliseCardio(list, now) {
+    return (Array.isArray(list) ? list : []).map(function (c) {
+      if (!c || typeof c !== "object") return null;
+      var mins = Number(c.minutes != null ? c.minutes : c.durationMin);
+      if (!isFinite(mins) || mins <= 0) return null;
+      var date = /^\d{4}-\d{2}-\d{2}$/.test(c.date || "") ? c.date : U.perthDateISO();
+      var hr = Number(c.avgHrBpm);
+      return {
+        id: c.id || U.uid("c"),
+        date: date,
+        kind: c.kind || "bike",
+        minutes: Math.min(600, Math.round(mins)),
+        avgHrBpm: isFinite(hr) && hr > 0 ? hr : null,
+        effort: c.effort || "easy",
+        note: typeof c.note === "string" ? c.note : "",
+        createdAt: c.createdAt || now || U.nowISO()
+      };
+    }).filter(Boolean);
   }
 
   function upgradeSession(ss, exFam, defaultStatus) {
@@ -249,6 +276,7 @@ window.App = window.App || {};
     if (typeof s.rotationIndex !== "number") s.rotationIndex = 0;
     if (s.manualDayId === undefined) s.manualDayId = null;
     if (s.activeSession === undefined) s.activeSession = null;
+    s.cardioSessions = normaliseCardio(s.cardioSessions, U.nowISO());
     var exFam = {};
     s.exercises.forEach(function (e) { exFam[e.id] = e.movementFamilyId; });
     s.sessions.forEach(function (ss) { upgradeSession(ss, exFam, "completed"); });
@@ -269,10 +297,13 @@ window.App = window.App || {};
     if (Array.isArray(s.programVersions) && !s.programVersions.length) errors.push("no program versions");
 
     (s.cardioSessions || []).forEach(function (c, i) {
-      if (!c || !c.id) { errors.push("cardioSessions[" + i + "] has no id"); return; }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date || "")) errors.push("cardio " + c.id + " bad date: " + c.date);
+      // Warnings, not errors, for the same reason the set bounds are warnings:
+      // normaliseCardio has already salvaged what it can, and refusing an
+      // entire training history over one odd ride is the worse outcome.
+      if (!c || !c.id) { warnings.push("cardioSessions[" + i + "] has no id"); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date || "")) warnings.push("cardio " + c.id + " bad date: " + c.date);
       if (!(typeof c.minutes === "number" && c.minutes > 0 && c.minutes <= 600))
-        errors.push("cardio " + c.id + " implausible minutes: " + c.minutes);
+        warnings.push("cardio " + c.id + " implausible minutes: " + c.minutes);
       if (c.avgHrBpm != null && !(typeof c.avgHrBpm === "number" && c.avgHrBpm >= 40 && c.avgHrBpm <= 220))
         warnings.push("cardio " + c.id + " implausible avg HR: " + c.avgHrBpm);
     });
