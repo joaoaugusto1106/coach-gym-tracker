@@ -312,6 +312,38 @@ window.App = window.App || {};
   function readKey(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function writeKey(k, v) { localStorage.setItem(k, v); }
 
+  /* How much room the app is taking, split so it is obvious what is training
+     history and what is just recoverable copies.
+
+     localStorage has no reliable quota API -- browsers report between 5 and 10
+     MB and Safari does not expose it at all -- so this reports what is actually
+     stored and compares it against a conservative 5 MB, rather than pretending
+     to know the real ceiling. The point is to give warning before a write
+     fails, since the existing handling only notices afterwards. */
+  var ASSUMED_QUOTA_BYTES = 5 * 1024 * 1024;
+  var WARN_AT = 0.7;                       // ~3.5 MB, the figure in the README
+
+  function footprint() {
+    var main = 0, backups = 0, lkg = 0, other = 0;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        var n = (localStorage.getItem(k) || "").length;
+        if (k === KEY) main = n;
+        else if (k === LKG_KEY) lkg = n;
+        else if (k.indexOf(BACKUP_PREFIX) === 0) backups += n;
+        else other += n;
+      }
+    } catch (e) { /* storage unavailable -- report zeroes rather than throwing */ }
+    var ours = main + backups + lkg;
+    return {
+      mainBytes: main, backupBytes: backups, lkgBytes: lkg, otherBytes: other,
+      totalBytes: ours, assumedQuotaBytes: ASSUMED_QUOTA_BYTES,
+      fraction: ours / ASSUMED_QUOTA_BYTES,
+      shouldWarn: ours / ASSUMED_QUOTA_BYTES >= WARN_AT
+    };
+  }
+
   function setSaveHealth(ok) {
     App.store.lastSaveOk = ok;
     if (typeof App.onSaveHealthChange === "function") App.onSaveHealthChange(ok);
@@ -458,6 +490,7 @@ window.App = window.App || {};
 
   // ---------------------------------------------------------------- public api
   App.store = {
+    footprint: footprint,
     get: function () { return state || load(); },
     save: persist,
     reload: load,

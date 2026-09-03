@@ -1709,6 +1709,29 @@ window.App = window.App || {};
         ? el("p", { class: "hint", text: "This browser blocked the offline worker. Everything else works and your data is safe — offline launch just isn't available here." })
         : null
     ]));
+    var fp = S.footprint();
+    function kb(n) { return n < 1024 * 1024 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Storage" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Training data" }), el("b", { text: kb(fp.mainBytes) })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Backups & recovery copy" }), el("b", { text: kb(fp.backupBytes + fp.lkgBytes) })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Total" }),
+        // .warn-text, not .warn -- `.warn` alone only exists as `.vbar .fill.warn`
+        el("b", { class: fp.shouldWarn ? "warn-text" : "", text: kb(fp.totalBytes) + " of ~" + kb(fp.assumedQuotaBytes) })
+      ]),
+      fp.shouldWarn
+        ? el("div", { class: "notice" }, [
+            icon("warn", 16),
+            el("span", { text: "Getting full. Export a backup now, then use Restore to drop older snapshots — saves start failing when the browser's limit is reached, and this is the warning before that happens." })
+          ])
+        : el("p", { class: "hint", text: "A session is roughly 3 KB, so a year of training at four days a week is about 650 KB. Browsers allow somewhere between 5 and 10 MB and do not reliably say which, so this counts against a conservative 5 MB." })
+    ]));
+
 
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Device" }),

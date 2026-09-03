@@ -183,8 +183,15 @@ importEvents[] backups[]
   export the original. It never resets your data because the schema changed.
 - **Import** parses → migrates → validates → shows a preview with counts and a duplicate
   warning → snapshots your current data → replaces. Cancel-safe at every step.
-- Storage is `localStorage` (~2 KB/session; years of training fits comfortably). Revisit
-  IndexedDB only if the stored size passes ~3.5 MB.
+- Storage is `localStorage`. Measured, not guessed: a year of training at four days a week —
+  208 sessions, six exercises each — is **667 KB**, or about 3.2 KB per session. Recomputing
+  every PR across that history takes 40 ms and a save takes 7 ms, so the ceiling is space
+  rather than speed.
+- **More → Storage** shows what is used, split into training data and recoverable copies, and
+  warns at ~3.5 MB. Browsers allow somewhere between 5 and 10 MB and Safari will not say which,
+  so it counts against a conservative 5 MB rather than pretending to know the real limit. Until
+  now the app only noticed a full disk *after* a write failed; this is the warning before that.
+  Revisit IndexedDB if that warning ever appears with the backups already trimmed.
 
 ## Variants A / B / C
 
