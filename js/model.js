@@ -382,7 +382,8 @@ window.App = window.App || {};
 
   // The full, explainable recommendation for one exercise.
   //   base       what your own training says to do next
-  //   today      a temporary recovery-driven softening (Stage 6; null for now)
+  //   today      a temporary recovery-driven softening; see todayAdjustment(),
+  //              which the views layer under the base target rather than into it
   //   confidence how much to trust it, and why
   function recommendation(state, exerciseId, slot, excludeSessionId) {
     slot = slot || defaultSlot();

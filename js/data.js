@@ -151,8 +151,10 @@ var EX_NAME = {};
 App.EXERCISE_SEED.forEach(function (e) { EX_NAME[e.id] = e.name; });
 
 /* --- Program version -----------------------------------------------------
-   4 lifting days, upper-body emphasis, one leg day. This is version "pv1";
-   later stages add pv2 / pv3 with their own effectiveStartDate, and every
+   4 lifting days, upper-body emphasis, one leg day. This is version "pv1".
+   A new *version* (pv2, pv3) is for the program itself changing, and carries
+   its own effectiveStartDate so history stays attributable; the A/B/C blocks
+   below are a different axis and rotate by phase within a version. Every
    completed session snapshots the prescription it was trained under.
    Rotation cycles through trainingDayOrder on intentional completion.
    Slot row: [ label, defaultExerciseId, [alternatives], sets, repLow, repHigh, targetRIR, note? ] */

@@ -480,3 +480,8 @@ you log here stays on this device — it won't reach it."*
    entry fallback, and an explicit decision rule (needs a week on-device to settle)
 9. ✅ Refinement — curated exercise photos, plate maths, accessibility and
    performance audits, final backup/restore proof
+10. ✅ Published — GitHub Pages workflow, installable from the live URL
+11. ✅ Finishing the gaps — A/B/C variants so a phase actually changes the
+   training, a deload week that holds load instead of only wearing a label,
+   easy-ride logging for the Zone 2 sessions the program always asked for,
+   and a reachable offline notice
