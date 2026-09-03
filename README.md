@@ -122,7 +122,7 @@ These are deliberately independent:
 | Start scheduled day | `draft` | unchanged |
 | Start manually-picked day | `draft` (`startMode: manual`) | unchanged |
 | Force-quit / reload mid-session | stays `draft` | unchanged; Today offers "Resume draft" |
-| Finish scheduled day normally | `completed` | **advances**; Undo offered for 10 min |
+| Finish scheduled day normally | `completed` | **advances**; Undo offered for 10 min, reload or not |
 | Finish a manually-picked day | `completed` | **asks first**, defaults to not advancing |
 | Finish with prescribed exercises untouched | offers "Finish as partial" | asks first |
 | Abandon a draft | `abandoned` (kept, hidden in History) | never advances |
@@ -167,6 +167,8 @@ recoveryReadings[]  date (Perth), hrvMs, restingHrBpm, sleepHours   (filled by
                     the Health bridge in Stage 8; everything works without it)
 session.variantId          which of A/B/C the session was trained under
 session.recoverySnapshot   the readiness frozen on the day it was trained
+lastFinished    { sessionId, prevRotationIndex, prevManualDayId, at } — the handle
+                behind "Undo", dropped on load once its ten minutes have passed
 importEvents[] backups[]
 ```
 
@@ -186,6 +188,11 @@ their hand, the suite says no.
 
 - **Autosave** after every set change; "Saved HH:MM" on the Session screen. If a write
   fails, a red banner appears and stays until it succeeds.
+- **Undo survives a reload.** The ten-minute window to undo a finished session is
+  recorded in the data, not held in a variable, because iOS discards a backgrounded web
+  app's page whenever it likes — and finishing a session then pocketing the phone is
+  exactly when it does. An expired or unreadable handle is dropped on load rather than
+  offering an undo that is actually hours old.
 - **Notes are flushed when you leave.** Session and exercise notes write into state as you
   type but only reached storage when the field lost focus, so typing a note and swiping the
   app away lost it. They are now also saved on `pagehide` and when the tab goes hidden —

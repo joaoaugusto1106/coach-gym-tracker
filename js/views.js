@@ -353,7 +353,15 @@ window.App = window.App || {};
       st.sessions.push(as);
       st.activeSession = null;
       draft = {};
-      App.lastFinished = { sessionId: as.id, prevRotationIndex: prevRotationIndex, prevManualDayId: prevManualDayId, ts: Date.now() };
+      // Kept in the state, not in a variable: iOS is free to discard a
+      // backgrounded PWA's page whenever it likes, and finishing a session then
+      // pocketing the phone is exactly when that happens. In memory only, the
+      // ten minutes of undo the app promises quietly became "until something
+      // reloads you".
+      st.lastFinished = {
+        sessionId: as.id, prevRotationIndex: prevRotationIndex,
+        prevManualDayId: prevManualDayId, at: U.nowISO()
+      };
       S.save();
       location.hash = "#/history";
       render();
@@ -503,11 +511,11 @@ window.App = window.App || {};
 
   function undoLastFinish() {
     var st = S.get();
-    var lf = App.lastFinished;
+    var lf = st.lastFinished;
     if (!lf) { App.ui.toast("Nothing to undo"); return; }
     var idx = -1;
     for (var i = 0; i < st.sessions.length; i++) if (st.sessions[i].id === lf.sessionId) idx = i;
-    if (idx < 0) { App.ui.toast("That session isn't here anymore"); App.lastFinished = null; return; }
+    if (idx < 0) { App.ui.toast("That session isn't here anymore"); st.lastFinished = null; S.save(); return; }
     if (st.activeSession) { App.ui.toast("Finish or abandon the current draft first"); return; }
     var s = st.sessions.splice(idx, 1)[0];
     s.status = "draft";
@@ -518,14 +526,21 @@ window.App = window.App || {};
     st.rotationIndex = lf.prevRotationIndex;
     st.manualDayId = lf.prevManualDayId;
     M.recomputeAllPRs(st);
-    App.lastFinished = null;
+    st.lastFinished = null;
     S.save();
     location.hash = "#/session";
     render();
     App.ui.toast("Back to draft");
   }
+  var UNDO_WINDOW_MS = 10 * 60000;
   function undoAvailable() {
-    return App.lastFinished && (Date.now() - App.lastFinished.ts) < 10 * 60000;
+    var lf = S.get().lastFinished;
+    if (!lf) return false;
+    var t = new Date(lf.at).getTime();
+    // An unreadable stamp means we cannot tell whether the window has passed,
+    // so treat it as expired rather than offering an undo that may be hours old.
+    if (!isFinite(t)) return false;
+    return (Date.now() - t) < UNDO_WINDOW_MS;
   }
 
   // ==================================================================

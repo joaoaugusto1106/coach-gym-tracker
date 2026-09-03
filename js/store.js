@@ -57,6 +57,7 @@ window.App = window.App || {};
       exercises: App.EXERCISE_SEED.map(U.deepCopy),
       movementFamilies: U.deepCopy(App.MOVEMENT_FAMILIES),
       activeSession: null,
+      lastFinished: null,
       sessions: [],
       bodyweights: [], nutritionDays: [], recoveryReadings: [], readinessCheckins: [],
       cardioSessions: [],
@@ -286,6 +287,15 @@ window.App = window.App || {};
     if (typeof s.rotationIndex !== "number") s.rotationIndex = 0;
     if (s.manualDayId === undefined) s.manualDayId = null;
     if (s.activeSession === undefined) s.activeSession = null;
+    // The undo-a-finish handle. It is only good for ten minutes, so an expired
+    // or malformed one is dropped on load rather than kept forever -- it names a
+    // session and a rotation index, and holding a stale one is just clutter that
+    // export/import would faithfully carry around.
+    if (!s.lastFinished || !s.lastFinished.sessionId) s.lastFinished = null;
+    else {
+      var lfAt = new Date(s.lastFinished.at).getTime();
+      if (!isFinite(lfAt) || Date.now() - lfAt > 10 * 60000) s.lastFinished = null;
+    }
     s.cardioSessions = normaliseCardio(s.cardioSessions, U.nowISO());
     var exFam = {};
     s.exercises.forEach(function (e) { exFam[e.id] = e.movementFamilyId; });
@@ -552,7 +562,11 @@ window.App = window.App || {};
     if (App.store.migrationError) return state;
     try {
       var lb = state.meta && state.meta.lastBackupAt;
-      var stale = !lb || (Date.now() - new Date(lb).getTime()) > 7 * 86400000;
+      // An unparseable stamp must read as "overdue", not as "recent". Comparing
+      // against NaN is false, which would have quietly switched the weekly
+      // backup off forever rather than taking one.
+      var t = lb ? new Date(lb).getTime() : NaN;
+      var stale = !isFinite(t) || (Date.now() - t) > 7 * 86400000;
       if (stale && state.sessions && state.sessions.length) { makeBackup("auto"); persist(); }
     } catch (e) {}
     return state;
