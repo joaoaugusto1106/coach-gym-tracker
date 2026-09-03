@@ -25,6 +25,13 @@ window.App = window.App || {};
     return { name: parts[0] || "today", arg: parts[1] || null };
   }
 
+  // The route we last drew. render() is used for two different things: real
+  // navigation (hashchange) and redrawing the screen in place after a state
+  // change -- and views.js calls it after nearly every tap. Only the first kind
+  // should jump to the top. Without this, logging a set on the third exercise
+  // of a push day throws you back to the header, every single set.
+  var lastRouteKey = null;
+
   function render() {
     var app = document.getElementById("app");
 
@@ -35,6 +42,12 @@ window.App = window.App || {};
     }
 
     var r = parseHash();
+    var routeKey = r.name + "/" + (r.arg || "");
+    var keepScroll = routeKey === lastRouteKey;
+    // Emptying #app collapses the page to zero height, which makes the browser
+    // clamp the scroll offset -- so remember it before, and put it back after.
+    var y = window.pageYOffset || document.documentElement.scrollTop || 0;
+
     var V = App.views;
     var node, tab = r.name;
 
@@ -55,7 +68,13 @@ window.App = window.App || {};
     app.innerHTML = "";
     app.appendChild(node);
     app.appendChild(tabbar(tab));
-    window.scrollTo(0, 0);
+    lastRouteKey = routeKey;
+
+    if (!keepScroll) { window.scrollTo(0, 0); return; }
+    // The redraw can leave the page shorter than it was (deleting a set, say),
+    // so clamp rather than scrolling into empty space.
+    var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    window.scrollTo(0, Math.min(y, max));
   }
   App.render = render;
 
@@ -184,6 +203,19 @@ window.App = window.App || {};
     window.addEventListener("hashchange", render);
     window.addEventListener("online", render);
     window.addEventListener("offline", render);
+
+    // Text fields (session and exercise notes) write straight into the state
+    // object as you type but only hit storage on blur -- so typing a note and
+    // then swiping the app away loses it. Flush on the way out. Saving is
+    // cheap and idempotent, and this is the last moment iOS gives us.
+    function flush() {
+      if (!App.store.migrationError) App.store.save();
+    }
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") flush();
+    });
+
     registerSW();
   }
 

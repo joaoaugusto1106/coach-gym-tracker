@@ -449,7 +449,7 @@ window.App = window.App || {};
       state.backups = state.backups || [];
       state.backups.push({
         id: id, at: U.nowISO(), trigger: trigger,
-        schemaVersion: state.schemaVersion, sizeBytes: blob.length
+        schemaVersion: state.schemaVersion, sizeBytes: blob.length * BYTES_PER_UNIT
       });
       pruneBackups();
       if (trigger === "manual" || trigger === "auto" || trigger === "export") {
@@ -457,6 +457,17 @@ window.App = window.App || {};
       }
       return id;
     } catch (e) { console.warn("Coach: backup failed —", e); return null; }
+  }
+
+  // What a backup actually costs, measured from the blob still in storage --
+  // so it is charged the same way footprint() charges it. Backups written
+  // before this counted UTF-16 units and recorded half the real figure; reading
+  // the blob sidesteps that rather than migrating the numbers.
+  function backupSizeBytes(b) {
+    if (!b || !b.id) return 0;
+    var blob = readKey(BACKUP_PREFIX + b.id);
+    if (blob == null) return b.sizeBytes || 0;
+    return blob.length * BYTES_PER_UNIT;
   }
 
   // union two backup indexes by id, keeping only entries whose blob still exists
@@ -501,7 +512,8 @@ window.App = window.App || {};
       working.backups = working.backups || [];
       if (preKey) working.backups.push({
         id: preKey.replace(BACKUP_PREFIX, ""), at: U.nowISO(),
-        trigger: "pre-migration", schemaVersion: from, sizeBytes: JSON.stringify(parsed).length
+        trigger: "pre-migration", schemaVersion: from,
+        sizeBytes: JSON.stringify(parsed).length * BYTES_PER_UNIT
       });
       return working;
     } catch (e) {
@@ -570,6 +582,7 @@ window.App = window.App || {};
 
     validate: validateState,
     makeBackup: makeBackup,
+    backupSizeBytes: backupSizeBytes,
 
     exportJSON: function () {
       if (state && state.meta) state.meta.exportedAt = U.nowISO();

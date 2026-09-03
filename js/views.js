@@ -2075,7 +2075,8 @@ window.App = window.App || {};
         if (!r.ok) { App.ui.toast(r.fatal); return; }
         App.applyTheme(); detailEdit = null; sh.close(); location.hash = "#/today"; render();
         App.ui.toast("Backup restored");
-      } }, [M.stampText(b.at) + " · " + b.trigger + " · " + Math.round(b.sizeBytes / 1024) + " KB"]));
+      } }, [M.stampText(b.at) + " · " + b.trigger + " · " +
+            Math.round(S.backupSizeBytes(b) / 1024) + " KB"]));
     });
     sh.open();
   }
