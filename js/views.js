@@ -61,7 +61,15 @@ window.App = window.App || {};
     // Name the block on the first week of a phase — the exercises have just
     // changed, and the honest thing is to say why rather than let it look like
     // a bug. Once you're into the phase it's just the chip above.
-    if (pv.variantId && info.week === 1) {
+    // Week 1 is the normal case. But an existing install picking up variants
+    // for the first time can land mid-phase on B or C, with a program that
+    // simply looks different one morning and nothing to explain it. So also
+    // announce it whenever the last session you logged was a different block.
+    var lastLogged = (st.sessions || []).filter(M.countsForHistory)
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+    var blockChanged = !!(pv.variantId && lastLogged && lastLogged.variantId &&
+      lastLogged.variantId !== pv.variantId);
+    if (pv.variantId && (info.week === 1 || blockChanged)) {
       nodes.push(el("div", { class: "card" }, [
         el("span", { class: "eyebrow", text: "New block" }),
         el("p", { class: "hint", text:
@@ -915,6 +923,16 @@ window.App = window.App || {};
     // app cannot see what Shortcuts did, so it asks rather than claiming.
     if (existing && App.health.isSupported()) {
       sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        // Send what is on screen. Reading the stored ride meant an edited
+        // duration that had not been saved yet went to Health at its old value,
+        // silently -- the one number that actually crosses the bridge.
+        var mNow = parseInt(mins.value, 10);
+        if (!(mNow > 0 && mNow <= 600)) { err.textContent = "Check the minutes before sending this to Health."; return; }
+        var hNow = hr.value === "" ? null : parseInt(hr.value, 10);
+        existing.minutes = mNow;
+        existing.avgHrBpm = (hNow != null && hNow >= 40 && hNow <= 220) ? hNow : null;
+        existing.note = note.value.trim();
+        S.save();
         var p2 = App.health.cardioPayload(existing);
         var name = st.settings.healthWriteShortcutName;
         sh.close();
@@ -986,7 +1004,14 @@ window.App = window.App || {};
         }
       }, [M.exerciseName(st, id) + (isPrescribed ? "  ·  prescribed" : "")]));
     });
-    sh.body.appendChild(el("label", { class: "checkrow" }, [remember, el("span", { text: "Make this the default for this slot from now on" })]));
+    // It is written into the current variant's slot, so it holds for this block
+    // and comes back when the block does. Saying "from now on" promised more
+    // than it delivers -- the next phase runs different exercises entirely.
+    var curVar = M.activeProgram(st).variantId;
+    sh.body.appendChild(el("label", { class: "checkrow" }, [remember,
+      el("span", { text: curVar
+        ? "Make this the default for this slot in block " + curVar
+        : "Make this the default for this slot from now on" })]));
     sh.open();
   }
   function rememberSwap(st, planSlotId, exId) {
@@ -1250,11 +1275,35 @@ window.App = window.App || {};
         onclick: function () { if (wi < current) { reviewWeek = wi + 1; render(); } } }, [icon("chevright", 18)])
     ]));
 
+    // The rides card goes ABOVE the no-sessions guard: a week with no lifting
+    // is exactly the week you are most likely to have ridden, and it used to
+    // show nothing at all.
+    var cw = M.cardioSummary(st, wi);
+    var ridesCard = el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Easy rides" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: cw.rides ? cw.rides + (cw.rides === 1 ? " ride" : " rides") : "None" }),
+        el("b", { class: cw.onTarget ? "up" : "", text: cw.minutes + " min" })
+      ]),
+      cw.avgHrBpm ? el("div", { class: "rowb" }, [
+        el("span", { text: "Average HR" }), el("b", { text: cw.avgHrBpm + " bpm" })
+      ]) : null,
+      cw.note ? el("p", { class: "hint", text: cw.note }) : null,
+      cw.sessions.length ? el("div", { class: "exlist" }, cw.sessions.map(function (c) {
+        return el("button", { class: "exrow linkrow", type: "button",
+          onclick: function () { cardioSheet(st, c); } }, [
+          el("div", { class: "exrow-name", text: M.humanDate(c.date) + (c.note ? " · " + c.note : "") }),
+          el("div", { class: "exrow-target", text: c.minutes + " min" + (c.avgHrBpm ? " · " + c.avgHrBpm + " bpm" : "") })
+        ]);
+      })) : null
+    ]);
+
     if (!r.sessionCount) {
       nodes.push(el("div", { class: "card empty" }, [
         icon("cal", 26),
         el("p", { text: "No sessions logged in " + r.label.toLowerCase() + "." })
       ]));
+      nodes.push(ridesCard);
       return;
     }
 
@@ -1321,25 +1370,7 @@ window.App = window.App || {};
       ]));
     }
 
-    var cw = M.cardioSummary(st, wi);
-    nodes.push(el("div", { class: "card" }, [
-      el("span", { class: "eyebrow", text: "Easy rides" }),
-      el("div", { class: "rowb" }, [
-        el("span", { text: cw.rides ? cw.rides + (cw.rides === 1 ? " ride" : " rides") : "None" }),
-        el("b", { class: cw.onTarget ? "up" : "", text: cw.minutes + " min" })
-      ]),
-      cw.avgHrBpm ? el("div", { class: "rowb" }, [
-        el("span", { text: "Average HR" }), el("b", { text: cw.avgHrBpm + " bpm" })
-      ]) : null,
-      cw.note ? el("p", { class: "hint", text: cw.note }) : null,
-      cw.sessions.length ? el("div", { class: "exlist" }, cw.sessions.map(function (c) {
-        return el("button", { class: "exrow linkrow", type: "button",
-          onclick: function () { cardioSheet(st, c); } }, [
-          el("div", { class: "exrow-name", text: M.humanDate(c.date) + (c.note ? " · " + c.note : "") }),
-          el("div", { class: "exrow-target", text: c.minutes + " min" + (c.avgHrBpm ? " · " + c.avgHrBpm + " bpm" : "") })
-        ]);
-      })) : null
-    ]));
+    nodes.push(ridesCard);
 
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Worth knowing" }),
@@ -1850,9 +1881,18 @@ window.App = window.App || {};
         el("span", { text: "Backups & recovery copy" }), el("b", { text: kb(fp.backupBytes + fp.lkgBytes) })
       ]),
       el("div", { class: "rowb" }, [
-        el("span", { text: "Total" }),
+        el("span", { text: "Coach total" }), el("b", { text: kb(fp.totalBytes) })
+      ]),
+      // The quota belongs to the whole origin, so on user.github.io every
+      // project page you host shares it. Warning on one number while showing
+      // another made the card contradict itself.
+      fp.otherBytes ? el("div", { class: "rowb" }, [
+        el("span", { text: "Other pages on this domain" }), el("b", { text: kb(fp.otherBytes) })
+      ]) : null,
+      el("div", { class: "rowb" }, [
+        el("span", { text: fp.otherBytes ? "Whole domain" : "Total" }),
         // .warn-text, not .warn -- `.warn` alone only exists as `.vbar .fill.warn`
-        el("b", { class: fp.shouldWarn ? "warn-text" : "", text: kb(fp.totalBytes) + " of ~" + kb(fp.assumedQuotaBytes) })
+        el("b", { class: fp.shouldWarn ? "warn-text" : "", text: kb(fp.originBytes) + " of ~" + kb(fp.assumedQuotaBytes) })
       ]),
       fp.shouldWarn
         ? el("div", { class: "notice" }, [

@@ -170,7 +170,13 @@ window.App = window.App || {};
       if (!c || typeof c !== "object") return null;
       var mins = Number(c.minutes != null ? c.minutes : c.durationMin);
       if (!isFinite(mins) || mins <= 0) return null;
-      var date = /^\d{4}-\d{2}-\d{2}$/.test(c.date || "") ? c.date : U.perthDateISO();
+      // Dating an undateable ride to today piled every legacy row into the
+      // current week's count and minutes -- a number you would then read as
+      // this week's training. Fall back to its createdAt if there is one, and
+      // otherwise drop the row rather than report it in a week it was not in.
+      var date = /^\d{4}-\d{2}-\d{2}$/.test(c.date || "") ? c.date
+        : (/^\d{4}-\d{2}-\d{2}/.test(c.createdAt || "") ? String(c.createdAt).slice(0, 10) : null);
+      if (!date) return null;
       var hr = Number(c.avgHrBpm);
       return {
         id: c.id || U.uid("c"),
