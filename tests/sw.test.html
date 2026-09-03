@@ -204,6 +204,32 @@ service-worker runtime; verify that on the device (see the README).</p>
           typeof res === "string" ? /index\.html/.test(res) : !!res);
       });
     }).then(function () {
+      // ---- fetch: navigation offline with NOTHING cached ----
+      // Regression: the fallback chain used `hit || caches.match("./")`, but a
+      // promise is always truthy, so "./" was skipped and the offline notice was
+      // unreachable — respondWith got undefined and threw. A first launch that
+      // went offline before precaching finished hit exactly this.
+      net.online = false;
+      var emptied = cachesStub.buckets[Object.keys(cachesStub.buckets).filter(function (n) {
+        return /^coach-v/.test(n);
+      })[0]];
+      var saved = emptied.map;
+      emptied.map = {};                                   // nothing precached at all
+      var e = evt({ request: req("http://localhost:8123/index.html", "navigate") });
+      scope._fire("fetch", e);
+      ok("offline navigation with an empty cache is still handled", !!e._response);
+      return e._response.then(function (res) {
+        ok("it resolves to a real Response, never undefined", !!res);
+        return (res && typeof res.text === "function" ? res.text() : Promise.resolve("")).then(function (body) {
+          ok("and that response is the offline notice", /Coach is offline/.test(body));
+          emptied.map = saved;                            // restore for later tests
+        });
+      }, function () {
+        ok("it resolves to a real Response, never undefined", false);
+        ok("and that response is the offline notice", false);
+        emptied.map = saved;
+      });
+    }).then(function () {
       // ---- fetch: static asset, offline ----
       net.online = false;
       var e = evt({ request: req("http://localhost:8123/js/model.js") });
@@ -246,7 +272,24 @@ service-worker runtime; verify that on the device (see the README).</p>
         !/\b(openDatabase|navigator\.storage\.persist)\b/.test(code));
       ok("every cache deletion is guarded by the coach- prefix",
         /indexOf\("coach-"\) === 0 && k !== CACHE/.test(src));
-      finish();
+
+      // ---- user text is never parsed as markup ----
+      // el() has an `html` option that assigns innerHTML. Exercise names,
+      // session and set notes and ride notes are all free text now, so the day
+      // one of them is rendered through that option, a name containing a tag
+      // starts executing. Nothing uses it today; this is the guard that keeps
+      // it that way.
+      return fetch("../js/views.js").then(function (r) { return r.text(); }).then(function (v) {
+        var vcode = v.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+        ok("views.js never renders through el()'s html option", !/\bhtml:\s/.test(vcode));
+        // count both forms rather than using a negative lookahead: \s* happily
+        // backtracks to zero width and lets (?!"") pass on the space
+        var assigns = (vcode.match(/\.innerHTML\s*=/g) || []).length;
+        var clears = (vcode.match(/\.innerHTML\s*=\s*""/g) || []).length;
+        ok("views.js only ever clears innerHTML, never assigns content (" +
+          clears + " of " + assigns + ")", assigns === clears);
+        finish();
+      });
     })["catch"](function (e) {
       ok("test run completed without throwing — " + e.message, false);
       finish();

@@ -151,8 +151,10 @@ var EX_NAME = {};
 App.EXERCISE_SEED.forEach(function (e) { EX_NAME[e.id] = e.name; });
 
 /* --- Program version -----------------------------------------------------
-   4 lifting days, upper-body emphasis, one leg day. This is version "pv1";
-   later stages add pv2 / pv3 with their own effectiveStartDate, and every
+   4 lifting days, upper-body emphasis, one leg day. This is version "pv1".
+   A new *version* (pv2, pv3) is for the program itself changing, and carries
+   its own effectiveStartDate so history stays attributable; the A/B/C blocks
+   below are a different axis and rotate by phase within a version. Every
    completed session snapshots the prescription it was trained under.
    Rotation cycles through trainingDayOrder on intentional completion.
    Slot row: [ label, defaultExerciseId, [alternatives], sets, repLow, repHigh, targetRIR, note? ] */
@@ -173,44 +175,151 @@ function buildDay(id, name, focusTags, rows) {
   };
 }
 
+/* --- The three variants --------------------------------------------------
+   Same four days, same slot order, same movement family in each slot — so
+   last-time recall, swaps and muscle-group volume stay comparable across a
+   whole year. What rotates is the *implement and the rep emphasis*:
+
+     A  barbell base, moderate reps      — the block you learn the lifts on
+     B  dumbbell and machine, higher reps — easier on the joints, more volume
+     C  heavier, lower reps               — pushes the top end
+
+   The phase number picks the variant (phase 1 → A, 2 → B, 3 → C, 4 → A), so
+   a 6-week phase is a block and the year is four of them. Weights are never
+   compared across variants automatically: each exercise keeps its own history,
+   which is exactly what movementFamilies already guarantee. */
+
+var VARIANT_A_DAYS = [
+  buildDay("push", "Upper · Push", ["chest", "shoulders", "arms"], [
+    ["Primary chest press",   "bb-bench",            ["db-bench", "machine-chest-press"],            4, 6,  9,  2],
+    ["Overhead press",        "ohp",                 ["seated-db-press", "machine-shoulder-press"],  3, 6,  10, 2],
+    ["Incline press",         "incline-db-press",    ["incline-machine-press", "low-high-cable-fly"],3, 8,  12, 2],
+    ["Row (balance)",         "chest-supported-row", ["seated-cable-row"],                           3, 10, 12, 2],
+    ["Lateral raise",         "cable-lateral",       ["db-lateral", "machine-lateral"],              3, 12, 20, 1],
+    ["Triceps pushdown",      "rope-pushdown",       ["overhead-cable-ext", "dip-machine"],          3, 10, 15, 1]
+  ]),
+  buildDay("lower", "Lower", ["legs", "core"], [
+    ["Squat pattern",         "back-squat",       ["hack-squat", "leg-press"],                 4, 6,  10, 2],
+    ["Hip hinge",             "rdl",              ["lying-leg-curl"],                          3, 8,  12, 2],
+    ["Leg press / quad",      "leg-press",        ["bulgarian-split-squat", "walking-lunge"],  3, 10, 15, 2],
+    ["Leg curl",              "seated-leg-curl",  ["nordic-curl"],                             3, 10, 15, 1],
+    ["Calf raise",            "standing-calf",    ["seated-calf", "leg-press-calf"],           4, 8,  15, 1],
+    ["Trunk flexion",         "hanging-leg-raise",["cable-crunch", "ab-wheel"],                3, 10, 15, 1]
+  ]),
+  buildDay("pull", "Upper · Pull", ["back", "shoulders", "arms"], [
+    ["Vertical pull",         "weighted-pullup",  ["lat-pulldown", "ng-pulldown"],                  4, 6,  10, 2],
+    ["Horizontal row",        "bb-row",           ["pendlay-row", "chest-supported-row", "tbar-row"],4, 8,  10, 2],
+    ["Row (width)",           "seated-cable-row", ["machine-row"],                                  3, 10, 12, 2],
+    ["Rear delt",             "reverse-pecdeck",  ["rear-delt-cable-fly", "face-pull"],             3, 15, 20, 1],
+    ["Supinated curl",        "incline-db-curl",  ["bayesian-curl", "ezbar-curl"],                  3, 8,  12, 1],
+    ["Neutral curl",          "hammer-curl",      ["rope-hammer"],                                  2, 10, 15, 1]
+  ]),
+  buildDay("arms", "Upper · Arms & Delts", ["arms", "shoulders", "chest"], [
+    ["Incline press",         "incline-bb-press",      ["incline-smith-press", "incline-db-press"], 3, 8,  12, 2],
+    ["Shoulder press",        "machine-shoulder-press",["arnold-press"],                            3, 10, 12, 2],
+    ["Lateral raise",         "cable-lateral",         ["machine-lateral"],                         4, 12, 20, 1, "Drop set on the last set"],
+    ["Compound triceps",      "cgbp",                  ["jm-press", "dip-machine"],                 3, 8,  12, 2],
+    ["Supinated curl",        "ezbar-curl",            ["machine-preacher"],                        3, 8,  12, 1],
+    ["Overhead triceps",      "overhead-cable-ext",    ["crossbody-cable-ext"],                     2, 12, 15, 1]
+  ])
+];
+
+/* B — dumbbells and machines, a couple of reps higher everywhere. Same slots,
+   so "Primary chest press" is still the first thing you do on push day. */
+var VARIANT_B_DAYS = [
+  buildDay("push", "Upper · Push", ["chest", "shoulders", "arms"], [
+    ["Primary chest press",   "db-bench",              ["bb-bench", "machine-chest-press"],            4, 8,  12, 2],
+    ["Overhead press",        "seated-db-press",       ["ohp", "machine-shoulder-press"],              3, 8,  12, 2],
+    ["Incline press",         "incline-machine-press", ["incline-db-press", "low-high-cable-fly"],     3, 10, 15, 2],
+    ["Row (balance)",         "seated-cable-row",      ["chest-supported-row", "machine-row"],         3, 10, 15, 2],
+    ["Lateral raise",         "db-lateral",            ["cable-lateral", "machine-lateral"],           4, 12, 20, 1],
+    ["Triceps pushdown",      "overhead-cable-ext",    ["rope-pushdown", "dip-machine"],               3, 12, 15, 1]
+  ]),
+  buildDay("lower", "Lower", ["legs", "core"], [
+    ["Squat pattern",         "hack-squat",            ["back-squat", "leg-press"],                    4, 8,  12, 2],
+    ["Hip hinge",             "rdl",                   ["lying-leg-curl"],                             3, 10, 15, 2],
+    ["Leg press / quad",      "bulgarian-split-squat", ["leg-press", "walking-lunge"],                 3, 10, 12, 2],
+    ["Leg curl",              "lying-leg-curl",        ["seated-leg-curl", "nordic-curl"],             3, 12, 15, 1],
+    ["Calf raise",            "seated-calf",           ["standing-calf", "leg-press-calf"],            4, 10, 15, 1],
+    ["Trunk flexion",         "cable-crunch",          ["hanging-leg-raise", "ab-wheel"],              3, 12, 15, 1]
+  ]),
+  buildDay("pull", "Upper · Pull", ["back", "shoulders", "arms"], [
+    ["Vertical pull",         "lat-pulldown",          ["weighted-pullup", "ng-pulldown"],             4, 8,  12, 2],
+    ["Horizontal row",        "chest-supported-row",   ["bb-row", "tbar-row", "machine-row"],          4, 10, 12, 2],
+    ["Row (width)",           "machine-row",           ["seated-cable-row"],                           3, 12, 15, 2],
+    ["Rear delt",             "face-pull",             ["reverse-pecdeck", "rear-delt-cable-fly"],     3, 15, 20, 1],
+    ["Supinated curl",        "bayesian-curl",         ["incline-db-curl", "ezbar-curl"],              3, 10, 15, 1],
+    ["Neutral curl",          "rope-hammer",           ["hammer-curl"],                                2, 12, 15, 1]
+  ]),
+  buildDay("arms", "Upper · Arms & Delts", ["arms", "shoulders", "chest"], [
+    ["Incline press",         "incline-db-press",      ["incline-machine-press", "incline-bb-press"],  3, 10, 15, 2],
+    ["Shoulder press",        "arnold-press",          ["machine-shoulder-press", "seated-db-press"],  3, 10, 12, 2],
+    ["Lateral raise",         "machine-lateral",       ["cable-lateral", "db-lateral"],                4, 12, 20, 1, "Drop set on the last set"],
+    ["Compound triceps",      "dip-machine",           ["cgbp", "jm-press"],                           3, 10, 12, 2],
+    ["Supinated curl",        "machine-preacher",      ["ezbar-curl", "incline-db-curl"],              3, 10, 15, 1],
+    ["Overhead triceps",      "crossbody-cable-ext",   ["overhead-cable-ext"],                         2, 12, 15, 1]
+  ])
+];
+
+/* C — the heavy block. Fewer reps on the primaries, one more set on them, and
+   the accessories stay in normal ranges so the extra intensity lands on the
+   lifts that carry it. RIR targets are unchanged: heavier is not to failure. */
+var VARIANT_C_DAYS = [
+  buildDay("push", "Upper · Push", ["chest", "shoulders", "arms"], [
+    ["Primary chest press",   "bb-bench",              ["db-bench", "machine-chest-press"],            5, 4,  7,  2, "Heavier block — still leave 2 in the tank"],
+    ["Overhead press",        "ohp",                   ["seated-db-press", "machine-shoulder-press"],  4, 5,  8,  2],
+    ["Incline press",         "incline-bb-press",      ["incline-smith-press", "incline-db-press"],    3, 6,  10, 2],
+    ["Row (balance)",         "chest-supported-row",   ["seated-cable-row", "machine-row"],            3, 8,  12, 2],
+    ["Lateral raise",         "cable-lateral",         ["db-lateral", "machine-lateral"],              4, 10, 15, 1],
+    ["Triceps pushdown",      "rope-pushdown",         ["overhead-cable-ext", "dip-machine"],          3, 8,  12, 1]
+  ]),
+  buildDay("lower", "Lower", ["legs", "core"], [
+    ["Squat pattern",         "back-squat",            ["hack-squat", "leg-press"],                    5, 4,  7,  2, "Heavier block — still leave 2 in the tank"],
+    ["Hip hinge",             "rdl",                   ["lying-leg-curl"],                             4, 6,  8,  2],
+    ["Leg press / quad",      "leg-press",             ["hack-squat", "bulgarian-split-squat"],        3, 8,  12, 2],
+    ["Leg curl",              "seated-leg-curl",       ["lying-leg-curl", "nordic-curl"],              3, 8,  12, 1],
+    ["Calf raise",            "standing-calf",         ["seated-calf", "leg-press-calf"],              4, 6,  10, 1],
+    ["Trunk flexion",         "ab-wheel",              ["hanging-leg-raise", "cable-crunch"],          3, 8,  12, 1]
+  ]),
+  buildDay("pull", "Upper · Pull", ["back", "shoulders", "arms"], [
+    ["Vertical pull",         "weighted-pullup",       ["lat-pulldown", "ng-pulldown"],                5, 4,  7,  2, "Add weight before adding reps this block"],
+    ["Horizontal row",        "pendlay-row",           ["bb-row", "tbar-row"],                         4, 5,  8,  2],
+    ["Row (width)",           "seated-cable-row",      ["machine-row"],                                3, 8,  12, 2],
+    ["Rear delt",             "rear-delt-cable-fly",   ["reverse-pecdeck", "face-pull"],               3, 12, 20, 1],
+    ["Supinated curl",        "ezbar-curl",            ["incline-db-curl", "bayesian-curl"],           3, 6,  10, 1],
+    ["Neutral curl",          "hammer-curl",           ["rope-hammer"],                                3, 8,  12, 1]
+  ]),
+  buildDay("arms", "Upper · Arms & Delts", ["arms", "shoulders", "chest"], [
+    ["Incline press",         "incline-smith-press",   ["incline-bb-press", "incline-db-press"],       4, 6,  10, 2],
+    ["Shoulder press",        "seated-db-press",       ["machine-shoulder-press", "arnold-press"],     3, 8,  10, 2],
+    ["Lateral raise",         "cable-lateral",         ["db-lateral", "machine-lateral"],              4, 10, 15, 1, "Heavier than usual — stop if the form breaks"],
+    ["Compound triceps",      "jm-press",              ["cgbp", "dip-machine"],                        3, 6,  10, 2],
+    ["Supinated curl",        "incline-db-curl",       ["ezbar-curl", "machine-preacher"],             3, 6,  10, 1],
+    ["Overhead triceps",      "overhead-cable-ext",    ["crossbody-cable-ext"],                        3, 10, 12, 1]
+  ])
+];
+
+App.PROGRAM_VARIANT_SEED = [
+  { id: "A", name: "Barbell base",        blurb: "Barbell primaries, moderate reps.",       days: VARIANT_A_DAYS },
+  { id: "B", name: "Dumbbell & machine",  blurb: "Kinder on the joints, a little more volume.", days: VARIANT_B_DAYS },
+  { id: "C", name: "Heavy block",         blurb: "Fewer reps and an extra set on the primaries.", days: VARIANT_C_DAYS }
+];
+
 App.PROGRAM_SEED = {
   id: "pv1",
   name: "Upper-emphasis block — v1",
   // effectiveStartDate is filled from settings.phaseStartDate on seed / migration
   phaseLengthWeeks: 6,
   trainingDayOrder: ["push", "lower", "pull", "arms"],
-  days: [
-    buildDay("push", "Upper · Push", ["chest", "shoulders", "arms"], [
-      ["Primary chest press",   "bb-bench",            ["db-bench", "machine-chest-press"],            4, 6,  9,  2],
-      ["Overhead press",        "ohp",                 ["seated-db-press", "machine-shoulder-press"],  3, 6,  10, 2],
-      ["Incline press",         "incline-db-press",    ["incline-machine-press", "low-high-cable-fly"],3, 8,  12, 2],
-      ["Row (balance)",         "chest-supported-row", ["seated-cable-row"],                           3, 10, 12, 2],
-      ["Lateral raise",         "cable-lateral",       ["db-lateral", "machine-lateral"],              3, 12, 20, 1],
-      ["Triceps pushdown",      "rope-pushdown",       ["overhead-cable-ext", "dip-machine"],          3, 10, 15, 1]
-    ]),
-    buildDay("lower", "Lower", ["legs", "core"], [
-      ["Squat pattern",         "back-squat",       ["hack-squat", "leg-press"],                 4, 6,  10, 2],
-      ["Hip hinge",             "rdl",              ["lying-leg-curl"],                          3, 8,  12, 2],
-      ["Leg press / quad",      "leg-press",        ["bulgarian-split-squat", "walking-lunge"],  3, 10, 15, 2],
-      ["Leg curl",              "seated-leg-curl",  ["nordic-curl"],                             3, 10, 15, 1],
-      ["Calf raise",            "standing-calf",    ["seated-calf", "leg-press-calf"],           4, 8,  15, 1],
-      ["Trunk flexion",         "hanging-leg-raise",["cable-crunch", "ab-wheel"],                3, 10, 15, 1]
-    ]),
-    buildDay("pull", "Upper · Pull", ["back", "shoulders", "arms"], [
-      ["Vertical pull",         "weighted-pullup",  ["lat-pulldown", "ng-pulldown"],                  4, 6,  10, 2],
-      ["Horizontal row",        "bb-row",           ["pendlay-row", "chest-supported-row", "tbar-row"],4, 8,  10, 2],
-      ["Row (width)",           "seated-cable-row", ["machine-row"],                                  3, 10, 12, 2],
-      ["Rear delt",             "reverse-pecdeck",  ["rear-delt-cable-fly", "face-pull"],             3, 15, 20, 1],
-      ["Supinated curl",        "incline-db-curl",  ["bayesian-curl", "ezbar-curl"],                  3, 8,  12, 1],
-      ["Neutral curl",          "hammer-curl",      ["rope-hammer"],                                  2, 10, 15, 1]
-    ]),
-    buildDay("arms", "Upper · Arms & Delts", ["arms", "shoulders", "chest"], [
-      ["Incline press",         "incline-bb-press",      ["incline-smith-press", "incline-db-press"], 3, 8,  12, 2],
-      ["Shoulder press",        "machine-shoulder-press",["arnold-press"],                            3, 10, 12, 2],
-      ["Lateral raise",         "cable-lateral",         ["machine-lateral"],                         4, 12, 20, 1, "Drop set on the last set"],
-      ["Compound triceps",      "cgbp",                  ["jm-press", "dip-machine"],                 3, 8,  12, 2],
-      ["Supinated curl",        "ezbar-curl",            ["machine-preacher"],                        3, 8,  12, 1],
-      ["Overhead triceps",      "overhead-cable-ext",    ["crossbody-cable-ext"],                     2, 12, 15, 1]
-    ])
-  ]
+  /* `days` stays as variant A: it is what every older reader of a program
+     version expects, and the fallback when a version carries no variants.
+
+     It is a COPY, not the same array. Per-slot customisations -- "make this
+     swap the default", a per-slot load step -- are written through
+     activeProgram(), which hands back the current variant's days. Sharing the
+     reference made a fresh install write through to both while a migrated one
+     (where variants[0].days is a deep copy of the old days) wrote to only one,
+     so the same action behaved differently depending on how you got here. */
+  days: JSON.parse(JSON.stringify(VARIANT_A_DAYS)),
+  variants: App.PROGRAM_VARIANT_SEED
 };

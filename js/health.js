@@ -71,6 +71,33 @@ window.App = window.App || {};
     };
   }
 
+  /* The same hand-off for an easy ride. Health has a real activity type for
+     cycling, so a ride should not be logged as strength training -- it would
+     land in the wrong place in Fitness and make the numbers meaningless.
+
+     A ride carries no start timestamp (you log it after the fact, and the app
+     does not ask when you set off), so the window is anchored to the END of the
+     logged day and worked backwards by the duration. That keeps it on the right
+     calendar day without inventing a departure time it never knew. Same rule as
+     the strength payload: a summary only -- no note, no heart rate history. */
+  function cardioPayload(ride) {
+    var mins = Math.max(1, Math.min(600, Math.round(ride.minutes || 0)));
+    // 18:00 local on the day it was logged, then back by the duration
+    var end = new Date(ride.date + "T18:00:00");
+    if (isNaN(end.getTime())) end = new Date();
+    var start = new Date(end.getTime() - mins * 60000);
+    return {
+      v: 1,
+      type: "Cycling",
+      cardioId: ride.id,
+      day: "Easy ride",
+      date: ride.date,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      durationMin: mins
+    };
+  }
+
   function payloadText(p) { return JSON.stringify(p); }
 
   function shortcutURL(shortcutName, p) {
@@ -293,6 +320,7 @@ window.App = window.App || {};
     wasClamped: wasClamped,
     workingSetsOf: workingSetsOf,
     payload: payload,
+    cardioPayload: cardioPayload,
     payloadText: payloadText,
     shortcutURL: shortcutURL,
     isSupported: isSupported,

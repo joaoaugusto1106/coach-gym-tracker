@@ -30,17 +30,24 @@ Icons are generated, not hand-drawn — `python3 tools/make-icons.py` rebuilds `
 
 `.github/workflows/deploy-pages.yml` publishes the site on every push to `main`. There is no
 build step — the repository root *is* the site — so the workflow uploads the checkout as-is
-and hands it to Pages. It also turns Pages on the first time it runs, so nothing needs
-clicking in Settings beforehand.
+and hands it to Pages.
 
 The published URL is **<https://joaoaugusto1106.github.io/coach-gym-tracker/>**.
 
-> **The repository is currently private, and Pages needs a public repository on a free
-> account.** Until it is either made public (repo → Settings → General → Danger Zone →
-> Change visibility) or the account has GitHub Pro, the deploy job will fail at the Pages
-> step. Nothing in this repository is a secret — all training data lives in `localStorage`
-> on the device and none of it is committed — but making it public is a decision, not a
-> detail, so it is left alone here.
+Two things have to be true before the first deploy can work, and neither can be done from
+the workflow:
+
+1. **The repository must be public**, unless the account has GitHub Pro — Pages is not
+   available on private repositories on a free plan.
+2. **Pages must be switched on once by hand**: Settings → Pages → *Build and deployment* →
+   Source → **GitHub Actions**.
+
+The second one is not optional and not automatable here. `actions/configure-pages` accepts
+an `enablement: true` input that looks like it would do it, but the workflow's own
+`GITHUB_TOKEN` is not permitted to create a Pages site — it fails with *"Create Pages site
+failed: Resource not accessible by integration"* no matter what `permissions:` the workflow
+asks for. Only a user (or a PAT with admin rights) can create the site. Once it exists, every
+later run is fully automatic.
 
 Everything is addressed relatively — the service worker registers as `sw.js`, the manifest
 uses `./` — so the app works unchanged at the `/coach-gym-tracker/` subpath, at a domain
@@ -115,7 +122,7 @@ These are deliberately independent:
 | Start scheduled day | `draft` | unchanged |
 | Start manually-picked day | `draft` (`startMode: manual`) | unchanged |
 | Force-quit / reload mid-session | stays `draft` | unchanged; Today offers "Resume draft" |
-| Finish scheduled day normally | `completed` | **advances**; Undo offered for 10 min |
+| Finish scheduled day normally | `completed` | **advances**; Undo offered for 10 min, reload or not |
 | Finish a manually-picked day | `completed` | **asks first**, defaults to not advancing |
 | Finish with prescribed exercises untouched | offers "Finish as partial" | asks first |
 | Abandon a draft | `abandoned` (kept, hidden in History) | never advances |
@@ -140,6 +147,8 @@ movementFamilies[]  groups interchangeable variants — offered together as swap
 programVersions[]   append-only. id, name, effectiveStartDate, trainingDayOrder,
                     days[] → slots[] (planSlotId, defaultExerciseId, allowedExerciseIds,
                     sets, repLow, repHigh, rir, loadIncrementKg, note)
+                    variants[] → { id A|B|C, name, blurb, days[] } — the phase
+                    number picks one; `days` above is variant A and the fallback
 sessions[]      sessionId, programVersionId, dayId, startMode, status, started/finished,
                 date (Perth), phase/week snapshot, rotationPositionSnapshot,
                 advancesRotation, recoverySnapshot, notes, entries[]
@@ -151,18 +160,48 @@ settings.mealPlan   the six checkpoints (time, label, detail) + kcal/protein tar
 bodyweights[]   entryId, date (Perth), kg, note
 nutritionDays[] date (Perth), checkpoints[] { index, id, state, largerPortion, at }
                 state = done | partial | skipped | none
+cardioSessions[]    id, date (Perth), kind (bike), minutes, avgHrBpm, effort, note
 readinessCheckins[] checkinId, date (Perth), energy, soreness, workdayLoad,
                     painOrIllness, note
 recoveryReadings[]  date (Perth), hrvMs, restingHrBpm, sleepHours   (filled by
                     the Health bridge in Stage 8; everything works without it)
+session.variantId          which of A/B/C the session was trained under
 session.recoverySnapshot   the readiness frozen on the day it was trained
+lastFinished    { sessionId, prevRotationIndex, prevManualDayId, at } — the handle
+                behind "Undo", dropped on load once its ten minutes have passed
 importEvents[] backups[]
 ```
+
+## User text is never markup
+
+Exercise names, session notes, set notes and ride notes are all free text. Every one of them
+reaches the screen through `textContent`, never `innerHTML` — the `el()` helper has an `html`
+option and nothing in `views.js` uses it. Verified by rendering `<img src=x onerror=…>` as an
+exercise name, a session note, a set note and a ride note, then visiting every screen: it
+appears as literal text, no element is created, nothing runs.
+
+A test asserts the invariant at the source level — that `views.js` contains no `html:` render
+and only ever *clears* `innerHTML` — so the day someone reaches for that option with a name in
+their hand, the suite says no.
 
 ## Data safety
 
 - **Autosave** after every set change; "Saved HH:MM" on the Session screen. If a write
   fails, a red banner appears and stays until it succeeds.
+- **Undo survives a reload.** The ten-minute window to undo a finished session is
+  recorded in the data, not held in a variable, because iOS discards a backgrounded web
+  app's page whenever it likes — and finishing a session then pocketing the phone is
+  exactly when it does. An expired or unreadable handle is dropped on load rather than
+  offering an undo that is actually hours old.
+- **Notes are flushed when you leave.** Session and exercise notes write into state as you
+  type but only reached storage when the field lost focus, so typing a note and swiping the
+  app away lost it. They are now also saved on `pagehide` and when the tab goes hidden —
+  the last moment iOS gives a web app.
+- **A set has bounds**: 0–500 kg and 1–100 reps. 0 kg is legitimate (bodyweight) and so are
+  micro-plates; a fat-fingered `99999` or `999` is not, and it would otherwise sit in your
+  history forever as an unbeatable PR, flatten every real point on the progress chart, and
+  skew muscle-group volume. Imports flag the same values as warnings rather than errors —
+  one odd row shouldn't cost you the whole backup.
 - **Last-known-good** copy (`coach.lkg`) written before every save; a corrupt main blob is
   recovered from it on the next launch.
 - **Backups** in `coach.backup.<id>`: last 5 rolling, plus one automatic per week, plus
@@ -172,8 +211,70 @@ importEvents[] backups[]
   export the original. It never resets your data because the schema changed.
 - **Import** parses → migrates → validates → shows a preview with counts and a duplicate
   warning → snapshots your current data → replaces. Cancel-safe at every step.
-- Storage is `localStorage` (~2 KB/session; years of training fits comfortably). Revisit
-  IndexedDB only if the stored size passes ~3.5 MB.
+- Storage is `localStorage`. Measured, not guessed: a year of training at four days a week —
+  208 sessions, six exercises each — is **667 KB**, or about 3.2 KB per session. Recomputing
+  every PR across that history takes 40 ms and a save takes 7 ms, so the ceiling is space
+  rather than speed.
+- **More → Storage** shows what is used, split into training data and recoverable copies, and
+  warns at ~3.5 MB. Browsers allow somewhere between 5 and 10 MB and Safari will not say which,
+  so it counts against a conservative 5 MB rather than pretending to know the real limit. Until
+  now the app only noticed a full disk *after* a write failed; this is the warning before that.
+  Revisit IndexedDB if that warning ever appears with the backups already trimmed.
+  Sizes are **bytes**, not string length: a JavaScript string's `.length` counts UTF-16 code
+  units and browsers charge about two bytes each, so measuring in characters would have doubled
+  the apparent headroom and put the warning past the point where writes already fail. The
+  backup list had the same bug independently and listed each snapshot at half the size the
+  storage card charged it; it now measures the blob that is actually in storage, so snapshots
+  written before the fix display correctly too.
+
+## Exercises the catalog doesn't have
+
+The seed catalog is 56 lifts. A real gym has a machine it doesn't cover, and the honest options
+without this were to log it as something it isn't or not log it — both of which put wrong data
+into the history everything else reasons from.
+
+During a session: **Add exercise → "Not in the list — create one"**. Name it, say what it trains
+and what it's loaded with (that sets the weight step: 2 kg for dumbbells, 2.5 kg otherwise).
+
+**"Swaps with" is the option worth understanding.** Leave it blank and the exercise stands alone.
+Pick a movement family and it joins that family's swap list, so a gym-specific machine can stand
+in for the lift it actually replaces — while still keeping its own weights, history and PRs, and
+never being compared against them.
+
+A custom exercise is a first-class one from then on: it recalls, it carries progression
+suggestions, it holds PRs, it appears in History and the weekly review, and it survives
+export/import. Duplicate names are refused whatever the case, and two exercises can never share
+an id.
+
+## Variants A / B / C
+
+A 6-week phase is a block, and the block changes what you actually lift. The phase number
+picks the variant — phase 1 → **A**, 2 → **B**, 3 → **C**, 4 → **A** again — so a year is four
+blocks rather than the same six exercises forever.
+
+| | |
+|---|---|
+| **A** — Barbell base | Barbell primaries, moderate reps. The block you learn the lifts on. |
+| **B** — Dumbbell & machine | Kinder on the joints, a couple of reps higher, a little more volume. |
+| **C** — Heavy block | Fewer reps and an extra set on the primaries; accessories stay normal. |
+
+All three keep the **same four days, the same slot order, and the same movement family in each
+slot**, so last-time recall, one-tap swaps and muscle-group volume stay comparable across a whole
+year. What rotates is the implement and the rep emphasis.
+
+**Weights are never compared across variants.** Each exercise keeps its own history, its own
+e1RM and its own PRs — the same rule `movementFamilies` already enforces. Coming back to
+barbell bench in phase 4 recalls your phase-1 barbell bench, not the dumbbell numbers in between.
+
+Variants are a different axis from **program versions**. A version records the program *itself*
+changing and is pinned to a date so history stays attributable; a variant is the same program's
+rotating selection and is derived from the phase. Each session freezes the variant it was
+trained under, so moving the phase start date later can't relabel finished work.
+
+The first week of a phase says which block just started and why the exercises changed — after
+that it's a chip in the header. Past sessions carry a **Block A/B/C** chip, and once you have
+trained in more than one block History gains a filter for it, so "what did I actually do in the
+heavy block" is a question you can answer.
 
 ## The progression engine
 
@@ -200,6 +301,10 @@ Load increments default to 2 kg for dumbbells, 2.5 kg otherwise, and are configu
 exercise (tap the exercise name during a session). The setting drives both the weight
 stepper and the "add load" target.
 
+The **rest timer** starts on its own after a working set — never after a warm-up or a drop set
+— and is set in More → Rest timer, from 1:00 to 5:00. It defaults to 2:30, which suits
+accessories and is short for a heavy top set. It is a prompt, not a rule.
+
 ## History, Week and Exercises
 
 The History tab has three sections.
@@ -225,7 +330,13 @@ began. Abandoned sessions are hidden behind a toggle.
 
 **Exercises** — every exercise you've logged, newest-used first. Tap one for its records, a
 progress chart (best estimated 1RM or heaviest working set per session), and every session
-it appears in. Warm-up and drop sets are excluded throughout; abandoned sessions never count.
+it appears in.
+
+An exercise carried entirely at bodyweight — hanging leg raise, Nordic curl, an unweighted
+pull-up — is reported in **reps** instead. Epley multiplies by the load, so its estimated 1RM
+is exactly zero, and showing *"0 kg — best estimated 1RM"* as a personal record looks broken
+while burying the number that actually moved. Those show best set and best session in reps,
+and the chart plots total working reps. Add weight to any set and it reverts to kilos. Warm-up and drop sets are excluded throughout; abandoned sessions never count.
 
 ## Food and body weight
 
@@ -236,7 +347,8 @@ and 0.5 per partial. Today is shown live but kept out of the weekly average unti
 and days you never logged are reported separately rather than counted as zeros.
 
 The kcal and protein targets are shown as what they are: a starting estimate to be corrected
-by what the scale does.
+by what the scale does — and they are editable on the Food tab, which a number described as
+"to be corrected" rather needs to be.
 
 **Body** logs a weigh-in per day and plots every reading with a 7-day rolling average over
 the top — single mornings bounce too much to read. The trend is a least-squares fit over the
@@ -258,6 +370,59 @@ It checks four things in order, and stops at the first one it can't answer:
 
 Only then does it suggest **one** change — about 50 g more rice at dinner, or half a scoop
 less oats — and says to wait two weeks before the next one.
+
+**The target band itself is yours to set** (Body → *What you're aiming for*). Gaining, holding
+and losing are all legitimate, and every portion suggestion is judged against whatever band you
+put there — a fixed 0.2–0.3 kg/week would have gone on nudging you toward a bulk long after you
+stopped wanting one. The control sits above the weigh-in data on purpose: you want to say what
+you are aiming at on day one, not after a fortnight of readings.
+
+## The deload week
+
+The last week of every phase is a deload, and it now does something. Where the engine would
+have said **add load**, it says **hold** instead, and says why: *"You earned the increase … it
+is waiting for you in week 1 of the next phase."* Today carries a card telling you to hold your
+loads and drop the last set of each exercise.
+
+Two limits, deliberately:
+
+- It only ever overrides **add load**. If the engine already wanted you to hold, consolidate or
+  back off, the deload agrees with it and doesn't say so twice.
+- It **never rewrites the prescription**. Sets and reps on the plan stay exactly as written and
+  the underlying recommendation still carries the target it would have set — cutting the last
+  set is said out loud and left to you, so what you log is still what you actually did.
+
+This is the one place something other than your own logged sets is allowed to set the target,
+and the reason is that it isn't a reaction to how you feel — it's the program. A block that
+told you to add load during its own deload week would be incoherent programming. Recovery, by
+contrast, still only ever adds a note underneath.
+
+## Easy rides
+
+The program asks for one or two easy Zone 2 bike sessions a week, and until now there was
+nowhere to put them — the v1 field was dropped during the schema migration and never rebuilt.
+
+Today carries a card showing the week's rides against the 1–2 target, and **Log an easy ride**
+takes minutes, an optional average heart rate and an optional note. Three of the four fields are
+optional on purpose: this is not a training log for cycling, and a longer form would just mean
+the ride never gets logged. An implausible heart rate is refused with the number you typed
+rather than stored.
+
+The weekly review shows the rides, total minutes and average heart rate. A week with none says
+so — and says that skipping them is a choice rather than a failure. More than two says so too,
+and ties it to the thing that actually matters: whether they are eating into how you recover for
+lifting.
+
+Tap any ride — on Today or in the weekly review — to correct it or delete it. A mistyped 480
+instead of 48 would otherwise sit in your data for good and quietly wrong every weekly total
+after it.
+
+Rides cross the **Apple Health** bridge too, typed as `Cycling` rather than strength training so
+they land in the right place in Fitness. A ride is logged after the fact, so the window is worked
+backwards from 6pm on the day rather than inventing a departure time. **The Shortcut must read
+the `type` key** instead of hard-coding the activity type — see
+[`shortcuts/log-strength-workout.md`](shortcuts/log-strength-workout.md); if it doesn't, rides
+get logged as strength training.
 
 ## Recovery
 
@@ -405,3 +570,17 @@ you log here stays on this device — it won't reach it."*
    entry fallback, and an explicit decision rule (needs a week on-device to settle)
 9. ✅ Refinement — curated exercise photos, plate maths, accessibility and
    performance audits, final backup/restore proof
+10. ✅ Published — GitHub Pages workflow, installable from the live URL
+11. ✅ Finishing the gaps — A/B/C variants so a phase actually changes the
+   training, a deload week that holds load instead of only wearing a label,
+   easy-ride logging for the Zone 2 sessions the program always asked for,
+   and a reachable offline notice
+12. ✅ Nothing left half-wired — rides editable, deletable and carried to
+   Health as Cycling, a Block chip and filter over the variants, and every
+   number that drives advice (rest timer, calorie and protein targets, the
+   weekly rate of weight change) settable rather than merely displayed
+13. ✅ Hardening — the session screen keeps your place instead of jumping to the
+   top on every logged set, notes survive being swiped away mid-typing, backup
+   sizes are charged in the same bytes as the storage warning, and the whole
+   install → offline → update → reload chain is verified end to end in a browser
+   rather than assumed

@@ -20,7 +20,7 @@ window.App = window.App || {};
   var LKG_KEY = "coach.lkg";
   var BACKUP_PREFIX = "coach.backup.";
   var SCHEMA = 2;
-  var APP_VERSION = "0.90.0";
+  var APP_VERSION = "1.0.0";
   var MAX_ROLLING_BACKUPS = 5;
 
   var state = null;
@@ -57,8 +57,10 @@ window.App = window.App || {};
       exercises: App.EXERCISE_SEED.map(U.deepCopy),
       movementFamilies: U.deepCopy(App.MOVEMENT_FAMILIES),
       activeSession: null,
+      lastFinished: null,
       sessions: [],
       bodyweights: [], nutritionDays: [], recoveryReadings: [], readinessCheckins: [],
+      cardioSessions: [],
       importEvents: [], backups: []
     };
   }
@@ -145,6 +147,12 @@ window.App = window.App || {};
     s.nutritionDays = s.nutritionDays || s.nutrition || [];
     s.recoveryReadings = s.recoveryReadings || s.recovery || [];
     s.readinessCheckins = s.readinessCheckins || [];
+    // v1 kept a loose `cardio` list. It used to be deleted here, which is why
+    // rides had nowhere to live; carry anything that was in there across --
+    // normalised, because those rows predate the shape and a missing id or a
+    // string duration would otherwise fail validation and take the whole
+    // migration down with it.
+    s.cardioSessions = normaliseCardio(s.cardioSessions || s.cardio || [], now);
     s.importEvents = s.importEvents || [];
     s.backups = s.backups || [];
     delete s.nutrition; delete s.recovery; delete s.cardio;
@@ -152,6 +160,40 @@ window.App = window.App || {};
     s.meta.migrationHistory.push({ from: 1, to: 2, at: now });
     s.schemaVersion = 2;
     return s;
+  }
+
+  /* Rides from a v1 file, or hand-edited since, may be missing an id or carry
+     a duration as a string. Salvage what is salvageable and drop only what is
+     genuinely unusable -- refusing an entire import over one bad row is the
+     worse failure. */
+  function normaliseCardio(list, now) {
+    return (Array.isArray(list) ? list : []).map(function (c) {
+      if (!c || typeof c !== "object") return null;
+      var mins = Number(c.minutes != null ? c.minutes : c.durationMin);
+      if (!isFinite(mins) || mins <= 0) return null;
+      // Dating an undateable ride to today piled every legacy row into the
+      // current week's count and minutes -- a number you would then read as
+      // this week's training. Fall back to its createdAt if there is one, and
+      // otherwise drop the row rather than report it in a week it was not in.
+      var date = /^\d{4}-\d{2}-\d{2}$/.test(c.date || "") ? c.date
+        : (/^\d{4}-\d{2}-\d{2}/.test(c.createdAt || "") ? String(c.createdAt).slice(0, 10) : null);
+      if (!date) return null;
+      var hr = Number(c.avgHrBpm);
+      return {
+        id: c.id || U.uid("c"),
+        date: date,
+        kind: c.kind || "bike",
+        minutes: Math.min(600, Math.round(mins)),
+        avgHrBpm: isFinite(hr) && hr > 0 ? hr : null,
+        effort: c.effort || "easy",
+        note: typeof c.note === "string" ? c.note : "",
+        // Set when you confirm a ride reached Apple Health. Rebuilding each
+        // row from a whitelist quietly dropped it on every load, so the mark
+        // never survived a reload and invited logging the same ride twice.
+        healthLogged: !!c.healthLogged,
+        createdAt: c.createdAt || now || U.nowISO()
+      };
+    }).filter(Boolean);
   }
 
   function upgradeSession(ss, exFam, defaultStatus) {
@@ -210,7 +252,8 @@ window.App = window.App || {};
     if (!s.meta) s.meta = seedState().meta;
     if (!s.settings) s.settings = seedState().settings;
     ["sessions", "bodyweights", "nutritionDays", "recoveryReadings", "readinessCheckins",
-     "importEvents", "backups", "exercises", "programVersions", "movementFamilies"].forEach(function (k) {
+     "cardioSessions", "importEvents", "backups", "exercises", "programVersions",
+     "movementFamilies"].forEach(function (k) {
       if (!Array.isArray(s[k])) s[k] = [];
     });
     if (!s.programVersions.length) {
@@ -219,12 +262,41 @@ window.App = window.App || {};
       s.programVersions = [pv];
     }
     if (!s.activeProgramVersionId) s.activeProgramVersionId = s.programVersions[0].id;
+    // Backfill A/B/C variants onto versions saved before they existed. This is a
+    // seed backfill, not a shape change -- the field is optional and the model
+    // falls back to `days` when it is absent -- so it belongs here alongside the
+    // new-exercise backfill rather than in a numbered migration.
+    // Whatever `days` the version already had becomes variant A, so a program
+    // the user edited is preserved rather than overwritten by the seed.
+    s.programVersions.forEach(function (pv) {
+      if (Array.isArray(pv.variants) && pv.variants.length) return;
+      var seed = App.PROGRAM_VARIANT_SEED || [];
+      if (!seed.length) return;
+      pv.variants = seed.map(function (v, i) {
+        return {
+          id: v.id, name: v.name, blurb: v.blurb,
+          days: (i === 0 && Array.isArray(pv.days) && pv.days.length)
+            ? U.deepCopy(pv.days)
+            : U.deepCopy(v.days)
+        };
+      });
+    });
     if (!s.settings.mealPlan || !Array.isArray(s.settings.mealPlan.checkpoints)) {
       s.settings.mealPlan = U.deepCopy(App.NUTRITION_SEED);
     }
     if (typeof s.rotationIndex !== "number") s.rotationIndex = 0;
     if (s.manualDayId === undefined) s.manualDayId = null;
     if (s.activeSession === undefined) s.activeSession = null;
+    // The undo-a-finish handle. It is only good for ten minutes, so an expired
+    // or malformed one is dropped on load rather than kept forever -- it names a
+    // session and a rotation index, and holding a stale one is just clutter that
+    // export/import would faithfully carry around.
+    if (!s.lastFinished || !s.lastFinished.sessionId) s.lastFinished = null;
+    else {
+      var lfAt = new Date(s.lastFinished.at).getTime();
+      if (!isFinite(lfAt) || Date.now() - lfAt > 10 * 60000) s.lastFinished = null;
+    }
+    s.cardioSessions = normaliseCardio(s.cardioSessions, U.nowISO());
     var exFam = {};
     s.exercises.forEach(function (e) { exFam[e.id] = e.movementFamilyId; });
     s.sessions.forEach(function (ss) { upgradeSession(ss, exFam, "completed"); });
@@ -244,6 +316,33 @@ window.App = window.App || {};
     });
     if (Array.isArray(s.programVersions) && !s.programVersions.length) errors.push("no program versions");
 
+    (s.cardioSessions || []).forEach(function (c, i) {
+      // Warnings, not errors, for the same reason the set bounds are warnings:
+      // normaliseCardio has already salvaged what it can, and refusing an
+      // entire training history over one odd ride is the worse outcome.
+      if (!c || !c.id) { warnings.push("cardioSessions[" + i + "] has no id"); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date || "")) warnings.push("cardio " + c.id + " bad date: " + c.date);
+      if (!(typeof c.minutes === "number" && c.minutes > 0 && c.minutes <= 600))
+        warnings.push("cardio " + c.id + " implausible minutes: " + c.minutes);
+      if (c.avgHrBpm != null && !(typeof c.avgHrBpm === "number" && c.avgHrBpm >= 40 && c.avgHrBpm <= 220))
+        warnings.push("cardio " + c.id + " implausible avg HR: " + c.avgHrBpm);
+    });
+
+    // Same posture as the rides above: a checkpoint state outside the four the
+    // app knows is worth saying out loud, because it silently counts as "not
+    // logged" and drags an adherence figure down for no visible reason -- but
+    // it is not worth refusing the import over.
+    var CP_STATES = { done: 1, partial: 1, skipped: 1, none: 1 };
+    (s.nutritionDays || []).forEach(function (d, i) {
+      if (!d || !Array.isArray(d.checkpoints)) return;
+      d.checkpoints.forEach(function (c, j) {
+        if (c && c.state != null && !CP_STATES[c.state]) {
+          warnings.push("nutritionDays[" + i + "] (" + (d.date || "no date") +
+            ") checkpoint " + j + " has an unknown state: " + c.state);
+        }
+      });
+    });
+
     var exIds = {};
     (s.exercises || []).forEach(function (e) { if (e && e.id) exIds[e.id] = true; });
 
@@ -255,8 +354,24 @@ window.App = window.App || {};
       ss.entries.forEach(function (en) {
         if (en && en.exerciseId && !exIds[en.exerciseId]) warnings.push("session " + ss.id + " references unknown exercise " + en.exerciseId);
         (en.sets || []).forEach(function (st) {
-          if (typeof st.weightKg !== "number" || typeof st.reps !== "number")
+          if (typeof st.weightKg !== "number" || typeof st.reps !== "number") {
             errors.push("session " + ss.id + " has a set with non-numeric weight/reps");
+            return;
+          }
+          // Same bounds the log form enforces. A backup edited by hand, or one
+          // written before those bounds existed, should not be able to put a
+          // set in that no real lift can beat -- an unbeatable PR and a
+          // flattened progress chart are permanent and hard to spot after the
+          // fact. Warnings, not errors: this is somebody's training history and
+          // refusing the whole import over one odd row would be worse.
+          // store.js is loaded before model.js, so read the bounds defensively --
+          // a throw in here would take the whole import down with it.
+          var maxW = (App.model && App.model.MAX_SET_WEIGHT_KG) || 500;
+          var maxR = (App.model && App.model.MAX_SET_REPS) || 100;
+          if (st.weightKg < 0 || st.weightKg > maxW)
+            warnings.push("session " + ss.id + " has an implausible weight: " + st.weightKg + " kg");
+          if (st.reps < 1 || st.reps > maxR)
+            warnings.push("session " + ss.id + " has an implausible rep count: " + st.reps);
         });
       });
     });
@@ -267,6 +382,7 @@ window.App = window.App || {};
       completedSessions: (s.sessions || []).filter(function (x) { return x.status === "completed"; }).length,
       programVersions: (s.programVersions || []).length,
       exercises: (s.exercises || []).length,
+      cardioSessions: (s.cardioSessions || []).length,
       lastSessionDate: (s.sessions || []).reduce(function (a, x) { return x.date > a ? x.date : a; }, ""),
       appVersion: s.meta && s.meta.appVersion,
       exportedAt: s.meta && s.meta.exportedAt
@@ -277,6 +393,48 @@ window.App = window.App || {};
   // ---------------------------------------------------------------- low-level io
   function readKey(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function writeKey(k, v) { localStorage.setItem(k, v); }
+
+  /* How much room the app is taking, split so it is obvious what is training
+     history and what is just recoverable copies.
+
+     localStorage has no reliable quota API -- browsers report between 5 and 10
+     MB and Safari does not expose it at all -- so this reports what is actually
+     stored and compares it against a conservative 5 MB, rather than pretending
+     to know the real ceiling. The point is to give warning before a write
+     fails, since the existing handling only notices afterwards. */
+  var ASSUMED_QUOTA_BYTES = 5 * 1024 * 1024;
+  var WARN_AT = 0.7;                       // ~3.5 MB, the figure in the README
+  // A JS string's .length is UTF-16 code units, and browsers charge roughly two
+  // bytes per unit against the quota. Comparing raw length against a byte
+  // budget doubled the apparent headroom, which put the warning threshold above
+  // the point where writes already fail -- so it could never fire in time.
+  var BYTES_PER_UNIT = 2;
+
+  function footprint() {
+    var main = 0, backups = 0, lkg = 0, other = 0;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        var n = (localStorage.getItem(k) || "").length;
+        if (k === KEY) main = n;
+        else if (k === LKG_KEY) lkg = n;
+        else if (k.indexOf(BACKUP_PREFIX) === 0) backups += n;
+        else other += n;
+      }
+    } catch (e) { /* storage unavailable -- report zeroes rather than throwing */ }
+    main *= BYTES_PER_UNIT; backups *= BYTES_PER_UNIT;
+    lkg *= BYTES_PER_UNIT; other *= BYTES_PER_UNIT;
+    var ours = main + backups + lkg;
+    // `other` is somebody else's key on this origin, but it is charged to the
+    // same quota, so it counts toward how close a write is to failing.
+    var onOrigin = ours + other;
+    return {
+      mainBytes: main, backupBytes: backups, lkgBytes: lkg, otherBytes: other,
+      totalBytes: ours, originBytes: onOrigin, assumedQuotaBytes: ASSUMED_QUOTA_BYTES,
+      fraction: onOrigin / ASSUMED_QUOTA_BYTES,
+      shouldWarn: onOrigin / ASSUMED_QUOTA_BYTES >= WARN_AT
+    };
+  }
 
   function setSaveHealth(ok) {
     App.store.lastSaveOk = ok;
@@ -316,7 +474,7 @@ window.App = window.App || {};
       state.backups = state.backups || [];
       state.backups.push({
         id: id, at: U.nowISO(), trigger: trigger,
-        schemaVersion: state.schemaVersion, sizeBytes: blob.length
+        schemaVersion: state.schemaVersion, sizeBytes: blob.length * BYTES_PER_UNIT
       });
       pruneBackups();
       if (trigger === "manual" || trigger === "auto" || trigger === "export") {
@@ -324,6 +482,17 @@ window.App = window.App || {};
       }
       return id;
     } catch (e) { console.warn("Coach: backup failed —", e); return null; }
+  }
+
+  // What a backup actually costs, measured from the blob still in storage --
+  // so it is charged the same way footprint() charges it. Backups written
+  // before this counted UTF-16 units and recorded half the real figure; reading
+  // the blob sidesteps that rather than migrating the numbers.
+  function backupSizeBytes(b) {
+    if (!b || !b.id) return 0;
+    var blob = readKey(BACKUP_PREFIX + b.id);
+    if (blob == null) return b.sizeBytes || 0;
+    return blob.length * BYTES_PER_UNIT;
   }
 
   // union two backup indexes by id, keeping only entries whose blob still exists
@@ -368,7 +537,8 @@ window.App = window.App || {};
       working.backups = working.backups || [];
       if (preKey) working.backups.push({
         id: preKey.replace(BACKUP_PREFIX, ""), at: U.nowISO(),
-        trigger: "pre-migration", schemaVersion: from, sizeBytes: JSON.stringify(parsed).length
+        trigger: "pre-migration", schemaVersion: from,
+        sizeBytes: JSON.stringify(parsed).length * BYTES_PER_UNIT
       });
       return working;
     } catch (e) {
@@ -407,7 +577,11 @@ window.App = window.App || {};
     if (App.store.migrationError) return state;
     try {
       var lb = state.meta && state.meta.lastBackupAt;
-      var stale = !lb || (Date.now() - new Date(lb).getTime()) > 7 * 86400000;
+      // An unparseable stamp must read as "overdue", not as "recent". Comparing
+      // against NaN is false, which would have quietly switched the weekly
+      // backup off forever rather than taking one.
+      var t = lb ? new Date(lb).getTime() : NaN;
+      var stale = !isFinite(t) || (Date.now() - t) > 7 * 86400000;
       if (stale && state.sessions && state.sessions.length) { makeBackup("auto"); persist(); }
     } catch (e) {}
     return state;
@@ -424,6 +598,7 @@ window.App = window.App || {};
 
   // ---------------------------------------------------------------- public api
   App.store = {
+    footprint: footprint,
     get: function () { return state || load(); },
     save: persist,
     reload: load,
@@ -436,6 +611,7 @@ window.App = window.App || {};
 
     validate: validateState,
     makeBackup: makeBackup,
+    backupSizeBytes: backupSizeBytes,
 
     exportJSON: function () {
       if (state && state.meta) state.meta.exportedAt = U.nowISO();

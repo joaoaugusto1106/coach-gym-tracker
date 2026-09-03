@@ -62,9 +62,15 @@ Add **Get Dictionary Value** four times. For each one, set *Dictionary* to the
 | Get Dictionary Value | `end` |
 | Get Dictionary Value | `durationMin` |
 | Get Dictionary Value | `day` |
+| Get Dictionary Value | `type` |
 
 Rename each result so the next steps are readable — long-press the action →
-**Rename** → `StartText`, `EndText`, `Minutes`, `DayName`.
+**Rename** → `StartText`, `EndText`, `Minutes`, `DayName`, `ActivityType`.
+
+> **`type` matters.** Coach sends `Functional Strength Training` for a lifting
+> session and `Cycling` for an easy ride. If you hard-code the activity type in
+> step 5 instead of using this variable, every ride lands in Health as strength
+> training — wrong place in Fitness, and the numbers stop meaning anything.
 
 ### 4. Turn the timestamps into dates
 
@@ -83,9 +89,14 @@ Add action → search **workout** → choose **Log Workout** (it's a Health acti
 
 Set:
 
-- **Activity Type**: `Functional Strength Training`
+- **Activity Type**: `ActivityType` (the variable from step 3 — **not** a fixed
+  value; this is what keeps rides out of your strength training)
 - **Start**: `StartDate`
 - **End**: `EndDate`
+
+> If your iOS version will not accept a variable for Activity Type, add an
+> **If** action on `ActivityType` → *is* `Cycling` and use two **Log Workout**
+> actions, one per type. Uglier, same result.
 
 Leave calories and distance empty. Coach doesn't estimate them and it would be
 inventing numbers if it did.
@@ -150,6 +161,14 @@ Whether these workouts count toward your **Activity rings**, or appear in
 **Fitness** and on the **Watch**, has not been verified. It depends on how iOS
 treats Shortcuts-logged workouts on your specific setup. Log one and look — then
 we'll know, and the docs get updated with the answer rather than a guess.
+
+## Easy rides
+
+The same Shortcut handles them. Log a ride in Coach (Today → **Log an easy ride**),
+tap it, then **Save to Apple Health**. Coach sends `type: "Cycling"` and a window
+worked backwards from 6pm on the day you logged it — a ride is recorded after the
+fact, so the app does not know when you set off and will not invent a time. What
+crosses is duration and type only: no heart rate, no note.
 
 ## What this bridge does not do
 

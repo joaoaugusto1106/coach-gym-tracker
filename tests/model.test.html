@@ -53,6 +53,87 @@
   };
   eq("active program before pv2 effective date", M.activeProgram(st2, "2026-02-15").id, "pv1");
   eq("active program on/after pv2 effective date", M.activeProgram(st2, "2026-03-10").id, "pv2");
+
+  // --- A/B/C variants, chosen by the phase number ---
+  // A version records the program changing (by date, above). A variant is the
+  // same program's rotating selection, and is picked by phase instead.
+  (function () {
+    function vday(id, exId) {
+      return { id: id, name: id, slots: [{ planSlotId: id + ".s1", label: "Primary",
+        defaultExerciseId: exId, allowedExerciseIds: [exId], sets: 3, repLow: 8, repHigh: 12, rir: 2 }] };
+    }
+    function pvWithVariants() {
+      return {
+        id: "pv1", name: "v1", effectiveStartDate: "2026-01-01",
+        trainingDayOrder: ["push"], days: [vday("push", "a-lift")],
+        variants: [
+          { id: "A", name: "A block", days: [vday("push", "a-lift")] },
+          { id: "B", name: "B block", days: [vday("push", "b-lift")] },
+          { id: "C", name: "C block", days: [vday("push", "c-lift")] }
+        ]
+      };
+    }
+    var stv = {
+      settings: { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 },
+      programVersions: [pvWithVariants()], activeProgramVersionId: "pv1", rotationIndex: 0
+    };
+    function liftOn(dateIso) { return M.activeProgram(stv, dateIso).days[0].slots[0].defaultExerciseId; }
+
+    eq("phase 1 runs variant A", liftOn("2026-01-01"), "a-lift");
+    eq("phase 2 runs variant B", liftOn("2026-02-13"), "b-lift");
+    eq("phase 3 runs variant C", liftOn("2026-03-27"), "c-lift");
+    eq("phase 4 wraps back to A", liftOn("2026-05-08"), "a-lift");
+    eq("the variant id is reported", M.activeProgram(stv, "2026-02-13").variantId, "B");
+
+    // the whole phase runs one variant — it must not change mid-block
+    eq("variant is stable across the phase",
+      [liftOn("2026-02-13"), liftOn("2026-03-01"), liftOn("2026-03-20")], ["b-lift", "b-lift", "b-lift"]);
+
+    // the stored version is the source of truth and must never be mutated
+    M.activeProgram(stv, "2026-02-13");
+    eq("selecting a variant never mutates the stored version",
+      stv.programVersions[0].days[0].slots[0].defaultExerciseId, "a-lift");
+
+    // a version with no variants still works — this is what old saved data looks like
+    var stPlain = {
+      settings: { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 },
+      programVersions: [{ id: "pv1", name: "v1", effectiveStartDate: "2026-01-01",
+        trainingDayOrder: ["push"], days: [vday("push", "only-lift")] }],
+      activeProgramVersionId: "pv1", rotationIndex: 0
+    };
+    eq("a version with no variants falls back to its days",
+      M.activeProgram(stPlain, "2026-03-27").days[0].slots[0].defaultExerciseId, "only-lift");
+    eq("and reports no variant", M.activeProgram(stPlain, "2026-03-27").variantId, undefined);
+  })();
+
+  // --- the shipped seed actually has three usable variants ---
+  (function () {
+    var vs = App.PROGRAM_SEED.variants;
+    eq("seed ships three variants", vs.length, 3);
+    eq("they are A, B, C", vs.map(function (v) { return v.id; }), ["A", "B", "C"]);
+    var known = {};
+    App.EXERCISE_SEED.forEach(function (e) { known[e.id] = true; });
+    var unknown = [], dayIds = [], slotCounts = [];
+    vs.forEach(function (v) {
+      dayIds.push(v.days.map(function (d) { return d.id; }).join(","));
+      v.days.forEach(function (d) {
+        slotCounts.push(d.slots.length);
+        d.slots.forEach(function (sl) {
+          sl.allowedExerciseIds.forEach(function (id) { if (!known[id]) unknown.push(v.id + ":" + id); });
+        });
+      });
+    });
+    eq("every exercise a variant names exists in the catalog", unknown, []);
+    eq("all three variants have the same four days", dayIds,
+      ["push,lower,pull,arms", "push,lower,pull,arms", "push,lower,pull,arms"]);
+    ok("every day has six slots in every variant",
+      slotCounts.length === 12 && slotCounts.every(function (n) { return n === 6; }));
+    // B and C have to actually differ from A or the rotation is decorative
+    function firstLift(v) { return v.days[0].slots[0].defaultExerciseId; }
+    ok("B differs from A on the primary press", firstLift(vs[0]) !== firstLift(vs[1]));
+    ok("C differs from A somewhere in the prescription",
+      JSON.stringify(vs[0].days) !== JSON.stringify(vs[2].days));
+  })();
   eq("programShortName", M.programShortName({ id: "pv3" }), "v3");
 
   // --- rotation clock ---
@@ -124,6 +205,122 @@
   eq("no history → none / confidence none",
     [M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).tone,
      M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).confidence], ["none", "none"]);
+  // --- date validation ---
+  // Every phase and week label in the app derives from one date string, so a
+  // format check alone is not enough: "2026-13-45" means nothing, and
+  // "2026-02-30" silently becomes 2 March.
+  eq("a real date passes", M.isValidISODate("2026-09-03"), true);
+  eq("a leap day in a leap year passes", M.isValidISODate("2024-02-29"), true);
+  eq("a leap day in a common year does not", M.isValidISODate("2026-02-29"), false);
+  eq("30 February does not silently roll forward", M.isValidISODate("2026-02-30"), false);
+  eq("month 13 is refused", M.isValidISODate("2026-13-01"), false);
+  eq("day 45 is refused", M.isValidISODate("2026-01-45"), false);
+  eq("day 00 is refused", M.isValidISODate("2026-01-00"), false);
+  eq("the wrong shape is refused", [M.isValidISODate("3/9/2026"), M.isValidISODate("2026-9-3")], [false, false]);
+  eq("rubbish is refused", [M.isValidISODate(""), M.isValidISODate(null), M.isValidISODate("banana")], [false, false, false]);
+  eq("31 December works", M.isValidISODate("2026-12-31"), true);
+
+  // --- custom exercises ---
+  // The seed catalog cannot cover every gym. A custom exercise has to be a
+  // first-class one or the history it feeds is worthless.
+  (function () {
+    function stEx() { return { exercises: App.EXERCISE_SEED.map(function (e) { return JSON.parse(JSON.stringify(e)); }) }; }
+
+    var st = stEx();
+    var n0 = st.exercises.length;
+    var r = M.addCustomExercise(st, { name: "Plate-loaded chest press", muscleGroup: "chest", equipment: "machine" });
+    ok("creates the exercise", r.ok === true);
+    eq("and adds exactly one", st.exercises.length, n0 + 1);
+    eq("id is derived from the name", r.exercise.id, "plate-loaded-chest-press");
+    eq("it is marked as yours", r.exercise.custom, true);
+    eq("machines step 2.5 kg by default", r.exercise.defaultLoadIncrementKg, 2.5);
+    eq("dumbbells step 2 kg", M.addCustomExercise(stEx(), { name: "DB thing", equipment: "dumbbell" }).exercise.defaultLoadIncrementKg, 2);
+
+    // ids must never collide, or two exercises share a history
+    var st2 = stEx();
+    M.addCustomExercise(st2, { name: "Row machine" });
+    var dup = M.addCustomExercise(st2, { name: "row MACHINE" });
+    eq("a duplicate name is refused, whatever the case", dup.ok, false);
+    ok("and it says which one you already have", /Row machine/.test(dup.error));
+    eq("and nothing is added", st2.exercises.length, App.EXERCISE_SEED.length + 1);
+
+    // a name that slugifies to an existing id must still get a unique one
+    var st3 = stEx();
+    M.addCustomExercise(st3, { name: "Zercher hold" });
+    var second = M.addCustomExercise(st3, { name: "Zercher  hold!" });
+    ok("a different name that slugifies the same still gets a unique id",
+      second.ok && second.exercise.id !== "zercher-hold");
+
+    eq("an empty name is refused", M.addCustomExercise(stEx(), { name: "   " }).ok, false);
+    ok("an absurd name is refused", M.addCustomExercise(stEx(), { name: "x".repeat(120) }).ok === false);
+    eq("an unknown muscle group falls back rather than storing junk",
+      M.addCustomExercise(stEx(), { name: "Thing", muscleGroup: "spleen" }).exercise.muscleGroup, "core");
+    eq("an unknown equipment falls back too",
+      M.addCustomExercise(stEx(), { name: "Thing2", equipment: "trebuchet" }).exercise.equipment, "machine");
+    eq("no family by default", M.addCustomExercise(stEx(), { name: "Thing3" }).exercise.movementFamilyId, null);
+    eq("a family can be set so it joins that swap list",
+      M.addCustomExercise(stEx(), { name: "Thing4", movementFamilyId: "flat-press" }).exercise.movementFamilyId, "flat-press");
+
+    // and it behaves like any other exercise afterwards
+    var st4 = stEx();
+    var made = M.addCustomExercise(st4, { name: "Belt squat" }).exercise;
+    eq("it is findable by id like any seeded lift", M.exerciseById(st4, made.id).name, "Belt squat");
+    eq("and names resolve through the normal path", M.exerciseName(st4, made.id), "Belt squat");
+  })();
+
+  // --- rest timer formatting ---
+  eq("rest timer shows minutes:seconds", [M.restText(150), M.restText(90), M.restText(300)], ["2:30", "1:30", "5:00"]);
+  eq("under a minute stays in seconds", M.restText(45), "45s");
+  eq("pads the seconds", M.restText(125), "2:05");
+  eq("zero and rubbish do not produce NaN", [M.restText(0), M.restText(null), M.restText(undefined)], ["0s", "0s", "0s"]);
+
+  // --- deload week ---
+  // The last week of a phase is the program, not a mood: it is allowed to set
+  // the target. But it only ever overrides "add load", and it never rewrites
+  // the prescription.
+  (function () {
+    // phaseStartDate chosen so the reference date lands in week 6 of phase 1
+    var DELOAD = { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 };   // 2026-02-05 = wk 6
+    var NORMAL = { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 };   // 2026-01-15 = wk 3
+    function stWith(settings, sets) {
+      var st = stateWithLast("bb-bench", sets);
+      st.settings = settings;
+      return st;
+    }
+    var topped = [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2)];
+    var midRange = [S(60, 7, 2), S(60, 7, 2), S(60, 7, 2), S(60, 7, 2)];
+
+    eq("deloadInfo is null in a normal week",
+      M.deloadInfo({ settings: NORMAL }, "2026-01-15"), null);
+    ok("deloadInfo fires in the last week of the phase",
+      !!M.deloadInfo({ settings: DELOAD }, "2026-02-05"));
+
+    var normal = M.overloadSuggestion(stWith(NORMAL, topped), "bb-bench", slot, null, "2026-01-15");
+    var deload = M.overloadSuggestion(stWith(DELOAD, topped), "bb-bench", slot, null, "2026-02-05");
+
+    eq("outside the deload, a topped-out block still says add load", normal.action, "add-load");
+    eq("in the deload it holds instead", deload.action, "deload-hold");
+    eq("and the tone drops from push to hold", [normal.tone, deload.tone], ["push", "hold"]);
+    ok("it says the increase was earned, not lost",
+      /earned/i.test(deload.detail) && /next phase/i.test(deload.detail));
+    ok("the deload note is attached for the UI", !!deload.deload);
+    eq("and it is flagged as having held an increase", deload.deloadHeld, true);
+
+    // the engine already agreeing must not be overridden or double-announced
+    var holdInDeload = M.overloadSuggestion(stWith(DELOAD, midRange), "bb-bench", slot, null, "2026-02-05");
+    eq("a hold in the deload keeps its own action", holdInDeload.action, "hold-add-reps");
+    eq("and is not counted as an increase held back", holdInDeload.deloadHeld, false);
+    ok("but the deload note is still shown", !!holdInDeload.deload);
+
+    // the underlying recommendation is untouched — the plan is not rewritten
+    eq("the base recommendation still knows load was earned",
+      deload.recommendation.base.action, "add-load");
+    eq("and still carries the target it would have set",
+      deload.recommendation.base.targetWeightKg, 62.5);
+    eq("the prescription itself is never edited",
+      [slot.sets, slot.repLow, slot.repHigh], [4, 6, 9]);
+  })();
+
   eq("missing RIR on a set → confidence low",
     M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, null)]), "bb-bench", slot).confidence, "low");
   ok("push headline names a heavier number",

@@ -5,6 +5,12 @@
 # checkout as-is. The app uses only relative URLs, so it works unchanged at the
 # project-page subpath (…github.io/coach-gym-tracker/) as well as at a domain root.
 #
+# ONE-TIME SETUP, done by hand: Settings -> Pages -> Build and deployment ->
+# Source: "GitHub Actions". This job cannot do it for you -- the default
+# GITHUB_TOKEN is not allowed to create a Pages site ("Resource not accessible
+# by integration"), whatever permissions the workflow requests, so the very
+# first run fails at Configure Pages until the source is set.
+#
 # To ship an update: bump VERSION in sw.js and merge to main. Installed copies
 # pick it up in the background and offer a "Reload" bar.
 
@@ -37,12 +43,11 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      # enablement: true turns Pages on the first time this runs, so the site
-      # does not need the repository settings to be touched by hand first.
+      # No enablement: true here -- it reads as though it would switch Pages on,
+      # but GITHUB_TOKEN cannot create a Pages site, so it only turns a clear
+      # "set the source to GitHub Actions" into a confusing permissions error.
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3

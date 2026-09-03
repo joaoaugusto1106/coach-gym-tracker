@@ -139,7 +139,81 @@
 
   finish();
   function finish() {
-    document.getElementById("summary").innerHTML =
+    // --- v1 cardio rows survive the migration ---
+  // v1 kept a loose `cardio` list that predates the shape. Carrying it across
+  // raw made a missing id or a string duration a fatal validation error, which
+  // refused the whole import -- a regression introduced by adding the checks.
+  (function () {
+    var v1 = {
+      schemaVersion: 1, settings: { phaseStartDate: "2026-08-01" },
+      exercises: App.EXERCISE_SEED.map(function (e) { return { id: e.id, name: e.name }; }),
+      sessions: [], bodyweights: [],
+      cardio: [
+        { minutes: "45", date: "2026-08-10" },                       // string duration, no id
+        { minutes: 30, createdAt: "2026-08-11T09:00:00Z" },          // no date, but datable
+        { minutes: 25 },                                             // no date at all
+        { minutes: 0 },                                              // unusable
+        null,                                                        // junk
+        { id: "keep", minutes: 60, date: "2026-08-12", avgHrBpm: "128", note: "loop" }
+      ]
+    };
+    var insp = App.store.inspectImport(JSON.stringify(v1));
+    ok("a v1 file with loose cardio still imports", insp.ok === true);
+    if (insp.ok) {
+      var rides = insp.parsed.cardioSessions;
+      eq("unusable rows are dropped, salvageable ones kept", rides.length, 3);
+      ok("every surviving ride has an id", rides.every(function (c) { return !!c.id; }));
+      ok("a string duration becomes a number", rides.some(function (c) { return c.minutes === 45; }));
+      ok("a string heart rate becomes a number", rides.some(function (c) { return c.avgHrBpm === 128; }));
+      ok("every surviving ride has a real date",
+        rides.every(function (c) { return /^\d{4}-\d{2}-\d{2}$/.test(c.date); }));
+      // Dating an undateable ride to today would pile legacy rows into the
+      // current week's count, which you would then read as this week's training.
+      eq("a ride with no date but a createdAt is dated from that",
+        rides.filter(function (c) { return c.minutes === 30; })[0].date, "2026-08-11");
+      eq("a ride with no date at all is dropped, not moved to today",
+        rides.filter(function (c) { return c.minutes === 25; }).length, 0);
+      eq("the row that was already well-formed is untouched",
+        rides.filter(function (c) { return c.id === "keep"; })[0].minutes, 60);
+      eq("and the result validates cleanly", App.store.validate(insp.parsed).ok, true);
+    }
+  })();
+
+  // --- implausible set values in an imported backup ---
+  // The log form bounds these now, but a hand-edited backup, or one written
+  // before the bounds existed, must not be able to smuggle in a set no real
+  // lift can beat. Warnings rather than errors -- this is somebody's training
+  // history, and refusing the whole import over one odd row would be worse.
+  (function () {
+    function withSet(w, r) {
+      var base = {
+        schemaVersion: 2, meta: { appVersion: "1.0.0" }, settings: {},
+        exercises: App.EXERCISE_SEED, programVersions: [App.PROGRAM_SEED],
+        sessions: [{ id: "s1", status: "completed", date: "2026-08-20", entries: [
+          { exerciseId: "bb-bench", sets: [{ id: "x", order: 0, type: "working", weightKg: w, reps: r }] }
+        ] }]
+      };
+      return base;
+    }
+    var okRes = App.store.validate(withSet(100, 8));
+    eq("a normal set raises nothing", okRes.warnings.filter(function (x) { return /implausible/.test(x); }).length, 0);
+
+    var heavy = App.store.validate(withSet(99999, 10));
+    ok("an absurd weight is flagged", heavy.warnings.some(function (x) { return /implausible weight/.test(x); }));
+    var many = App.store.validate(withSet(60, 999));
+    ok("an absurd rep count is flagged", many.warnings.some(function (x) { return /implausible rep/.test(x); }));
+
+    // and it stays a warning, so the import is still usable
+    ok("the import is not rejected over it", heavy.errors.filter(function (e) { return /implausible/.test(e); }).length === 0);
+
+    // the legitimate edges still pass
+    eq("0 kg is fine — that is bodyweight",
+      App.store.validate(withSet(0, 10)).warnings.filter(function (x) { return /implausible weight/.test(x); }).length, 0);
+    eq("the boundary values themselves are allowed",
+      App.store.validate(withSet(500, 100)).warnings.filter(function (x) { return /implausible/.test(x); }).length, 0);
+  })();
+
+  document.getElementById("summary").innerHTML =
       (fail === 0 ? '<span class="ok">' : '<span class="fail">') + pass + " passed, " + fail + " failed</span>";
   }
 })();

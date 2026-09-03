@@ -7,6 +7,14 @@ window.App = window.App || {};
 (function () {
   var U = App.util;
 
+  /* Bounds for a single logged set. Deliberately generous -- well past any
+     lift a person will do -- because the job is catching a slipped digit, not
+     policing how strong someone is. The all-time raw squat record is under
+     500 kg, and 100 reps is already past the point where "reps" is the
+     interesting number. */
+  var MAX_SET_WEIGHT_KG = 500;
+  var MAX_SET_REPS = 100;
+
   function epley(weightKg, reps) { return weightKg * (1 + reps / 30); }
   function round2(n) { return Math.round(n * 100) / 100; }
   function e1rmOf(s) { return (s.e1rm != null) ? s.e1rm : epley(s.weightKg, s.reps); }
@@ -51,6 +59,20 @@ window.App = window.App || {};
     return { phase: phase, week: week, weeksIn: weeksIn, isDeloadWeek: week === len };
   }
 
+  /* A real calendar date, not just something shaped like one.
+     "2026-13-45" passes a format check and then quietly means nothing;
+     "2026-02-30" is worse, because JavaScript rolls it forward to 2 March and
+     the app carries on with a date the user never typed. Round-tripping is the
+     only honest test. */
+  function isValidISODate(iso) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return false;
+    var parts = String(iso).split("-");
+    var y = +parts[0], m = +parts[1], d = +parts[2];
+    if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+    var dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+  }
+
   function addDays(iso, n) {
     var d = isoToDate(iso);
     d.setDate(d.getDate() + n);
@@ -73,16 +95,45 @@ window.App = window.App || {};
     return "Phase " + (Math.floor(weekIndex / len) + 1) + " · Week " + ((weekIndex % len) + 1);
   }
 
+  // ---- variants: which of A/B/C this phase runs --------------------------
+  // A program *version* records the program itself changing, and is pinned to a
+  // date so history stays attributable. A *variant* is a different axis: the
+  // same program's rotating exercise selection, chosen by the phase number.
+  // Phase 1 -> A, 2 -> B, 3 -> C, 4 -> A again.
+  function variantForPhase(pv, phase) {
+    var vs = pv && pv.variants;
+    if (!vs || !vs.length) return null;
+    var n = vs.length;
+    return vs[(((phase - 1) % n) + n) % n];
+  }
+
+  // Returns the version with `days` swapped to the phase's variant, so every
+  // existing reader of pv.days gets the right block without knowing variants
+  // exist. The stored version is never mutated.
+  function applyVariant(state, pv, dateIso) {
+    if (!pv || !pv.variants || !pv.variants.length) return pv;
+    var phase = phaseInfo(state.settings || {}, dateIso).phase;
+    var v = variantForPhase(pv, phase);
+    if (!v || !v.days || !v.days.length) return pv;
+    var out = {};
+    for (var k in pv) if (Object.prototype.hasOwnProperty.call(pv, k)) out[k] = pv[k];
+    out.days = v.days;
+    out.variantId = v.id;
+    out.variantName = v.name;
+    out.variantBlurb = v.blurb || "";
+    return out;
+  }
+
   // ---- program version in force on a given date --------------------------
   function activeProgram(state, dateIso) {
     dateIso = dateIso || perthTodayISO();
     var vs = (state.programVersions || []).slice()
       .filter(function (v) { return (v.effectiveStartDate || "0000") <= dateIso; })
       .sort(function (a, b) { return a.effectiveStartDate < b.effectiveStartDate ? 1 : -1; });
-    if (vs.length) return vs[0];
+    if (vs.length) return applyVariant(state, vs[0], dateIso);
     // nothing effective yet — fall back to the flagged active one, else the first
     var byId = programById(state, state.activeProgramVersionId);
-    return byId || state.programVersions[0];
+    return applyVariant(state, byId || state.programVersions[0], dateIso);
   }
   function programById(state, id) {
     var list = state.programVersions || [];
@@ -167,6 +218,13 @@ window.App = window.App || {};
   // Most recent valid exposure, or null.
   function lastPerformance(state, exerciseId, excludeSessionId) {
     return exposures(state, exerciseId, excludeSessionId, 1)[0] || null;
+  }
+
+  // "2:30" reads faster than "150 s" when you are looking at a clock anyway.
+  function restText(sec) {
+    sec = Math.max(0, Math.round(sec || 0));
+    var m = Math.floor(sec / 60), r = sec % 60;
+    return m ? (m + ":" + (r < 10 ? "0" : "") + r) : (r + "s");
   }
 
   function repRangeText(slot) {
@@ -353,7 +411,8 @@ window.App = window.App || {};
 
   // The full, explainable recommendation for one exercise.
   //   base       what your own training says to do next
-  //   today      a temporary recovery-driven softening (Stage 6; null for now)
+  //   today      a temporary recovery-driven softening; see todayAdjustment(),
+  //              which the views layer under the base target rather than into it
   //   confidence how much to trust it, and why
   function recommendation(state, exerciseId, slot, excludeSessionId) {
     slot = slot || defaultSlot();
@@ -463,20 +522,173 @@ window.App = window.App || {};
     };
   }
 
+  // ---- deload week --------------------------------------------------------
+  // The last week of a phase. Unlike a recovery nudge, this is not a reaction
+  // to how you feel -- it is the program, so it is allowed to set the target:
+  // a block that told you to add load in its own deload week would be
+  // incoherent programming, not respectful of your judgement.
+  //
+  // What it will NOT do is quietly rewrite the prescription. Sets and reps on
+  // the plan stay exactly as written; cutting the last set is said out loud and
+  // left to you, so what you log is still what you actually did.
+  function deloadInfo(state, dateIso) {
+    var info = phaseInfo((state && state.settings) || {}, dateIso);
+    if (!info.isDeloadWeek) return null;
+    return {
+      phase: info.phase, week: info.week,
+      headline: "Deload week — the last week of phase " + info.phase,
+      detail: "Hold your loads where they are and drop the last set of each exercise. " +
+        "This is planned, not a setback: it is what lets the next block start fresh."
+    };
+  }
+
   // Compact view of the recommendation, for list rows and cards.
   // tone: "push" | "hold" | "back" | "none"; confidence: "ok" | "low" | "none"
-  function overloadSuggestion(state, exerciseId, slot, excludeSessionId) {
+  function overloadSuggestion(state, exerciseId, slot, excludeSessionId, dateIso) {
     var r = recommendation(state, exerciseId, slot, excludeSessionId);
+    var dl = deloadInfo(state, dateIso);
+
+    var tone = r.base.tone, action = r.base.action;
+    var headline = r.base.headline, detail = r.base.reason;
+
+    // Only "add load" is overridden -- if the engine already wants you to hold,
+    // consolidate or back off, the deload agrees with it and there is nothing
+    // to say twice.
+    if (dl && action === "add-load") {
+      tone = "hold";
+      action = "deload-hold";
+      headline = "Hold — deload week";
+      detail = "You earned the increase: " + lowerFirst(r.base.reason) +
+        " It is waiting for you in week 1 of the next phase.";
+    }
+
     return {
-      tone: r.base.tone,
-      action: r.base.action,
-      headline: r.base.headline,
-      detail: r.base.reason,
+      tone: tone,
+      action: action,
+      headline: headline,
+      detail: detail,
       patternNote: r.base.patternNote,
       confidence: r.confidence.level,
       confidenceReasons: r.confidence.reasons,
+      deload: dl,
+      deloadHeld: !!(dl && r.base.action === "add-load"),
       recommendation: r
     };
+  }
+
+  function lowerFirst(t) {
+    t = String(t || "");
+    return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+  }
+
+  // ---- custom exercises ---------------------------------------------------
+  // The seed catalog is 56 lifts. A real gym has a machine it does not cover,
+  // and without this the honest options were to lie (log it as something else)
+  // or not log it, both of which corrupt the history the whole app reasons
+  // from. A custom exercise is a first-class one: it swaps, it recalls, it
+  // holds PRs, and it survives export/import like any other.
+  var EQUIPMENT = ["barbell", "dumbbell", "machine", "cable", "smith", "bodyweight"];
+
+  function slugifyExerciseId(name, taken) {
+    var base = String(name || "").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "exercise";
+    var id = base, n = 2;
+    while (taken[id]) { id = base + "-" + n; n++; }
+    return id;
+  }
+
+  function addCustomExercise(state, d) {
+    var name = String((d && d.name) || "").trim().replace(/\s+/g, " ");
+    if (!name) return { ok: false, error: "Give it a name." };
+    if (name.length > 60) return { ok: false, error: "That name is too long — keep it under 60 characters." };
+
+    var existing = (state.exercises || []);
+    var clash = existing.filter(function (e) {
+      return e.name.toLowerCase() === name.toLowerCase();
+    })[0];
+    if (clash) return { ok: false, error: "You already have an exercise called " + clash.name + ".", existingId: clash.id };
+
+    var muscleGroup = (App.MUSCLES.indexOf(d.muscleGroup) >= 0) ? d.muscleGroup : "core";
+    var equipment = (EQUIPMENT.indexOf(d.equipment) >= 0) ? d.equipment : "machine";
+    var taken = {};
+    existing.forEach(function (e) { taken[e.id] = true; });
+
+    var ex = {
+      id: slugifyExerciseId(name, taken),
+      name: name,
+      muscleGroup: muscleGroup,
+      equipment: equipment,
+      // Optional. Set it and the exercise joins that family's swap list, so a
+      // gym-specific machine can stand in for the lift it actually replaces.
+      movementFamilyId: d.movementFamilyId || null,
+      movementPattern: null,
+      secondaryMuscles: [],
+      defaultLoadIncrementKg: (d.incrementKg != null && !isNaN(d.incrementKg))
+        ? Number(d.incrementKg)
+        : (equipment === "dumbbell" ? 2 : 2.5),
+      referenceImage: null,
+      active: true,
+      userNote: "",
+      custom: true                       // so the UI can say where it came from
+    };
+    state.exercises = existing.concat([ex]);
+    return { ok: true, exercise: ex };
+  }
+
+  // ---- cardio: the easy Zone 2 rides the program asks for -----------------
+  // Deliberately thin. This is not a training log for cycling: it exists so the
+  // one or two easy rides a week the program calls for are visible next to the
+  // lifting, and so a week with none of them says so.
+  var CARDIO_WEEKLY_TARGET_LOW = 1, CARDIO_WEEKLY_TARGET_HIGH = 2;
+
+  function cardioInWeek(state, weekIndex) {
+    var b = weekBounds(state.settings || {}, weekIndex);
+    return (state.cardioSessions || []).filter(function (c) {
+      return c && c.date >= b.start && c.date <= b.end;
+    }).sort(function (a, c) { return a.date < c.date ? -1 : 1; });
+  }
+
+  function cardioSummary(state, weekIndex) {
+    var list = cardioInWeek(state, weekIndex);
+    var minutes = list.reduce(function (a, c) { return a + (c.minutes || 0); }, 0);
+    var withHr = list.filter(function (c) { return c.avgHrBpm != null; });
+    var avgHr = withHr.length
+      ? Math.round(withHr.reduce(function (a, c) { return a + c.avgHrBpm; }, 0) / withHr.length)
+      : null;
+    var note;
+    if (!list.length) note = "No easy rides logged this week. The program asks for one or two — they are optional, and skipping them is a choice rather than a failure.";
+    else if (list.length < CARDIO_WEEKLY_TARGET_LOW) note = "";
+    else if (list.length > CARDIO_WEEKLY_TARGET_HIGH) note = list.length + " rides — more than the program asks for. Fine if they were genuinely easy; worth a look if they are eating into how you recover for lifting.";
+    else note = "";
+    return {
+      rides: list.length, minutes: minutes, avgHrBpm: avgHr,
+      targetLow: CARDIO_WEEKLY_TARGET_LOW, targetHigh: CARDIO_WEEKLY_TARGET_HIGH,
+      onTarget: list.length >= CARDIO_WEEKLY_TARGET_LOW && list.length <= CARDIO_WEEKLY_TARGET_HIGH,
+      note: note, sessions: list
+    };
+  }
+
+  function addCardio(state, entry) {
+    var c = {
+      id: uid("c"),
+      date: entry.date || perthTodayISO(),
+      kind: entry.kind || "bike",
+      minutes: Number(entry.minutes) || 0,
+      avgHrBpm: (entry.avgHrBpm === "" || entry.avgHrBpm == null) ? null : Number(entry.avgHrBpm),
+      effort: entry.effort || "easy",
+      note: entry.note || "",
+      createdAt: U.nowISO()
+    };
+    state.cardioSessions = state.cardioSessions || [];
+    state.cardioSessions.push(c);
+    state.cardioSessions.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    return c;
+  }
+
+  function removeCardio(state, id) {
+    var before = (state.cardioSessions || []).length;
+    state.cardioSessions = (state.cardioSessions || []).filter(function (c) { return c.id !== id; });
+    return state.cardioSessions.length !== before;
   }
 
   // ---- Stage 3: volume, weekly review, per-exercise progress -------
@@ -613,6 +825,22 @@ window.App = window.App || {};
   }
 
   // Per-exercise series for the progress view: one point per valid exposure.
+  // True when every working set ever logged for this exercise was at 0 kg.
+  function isBodyweightHistory(state, exerciseId) {
+    var any = false, allZero = true;
+    (state.sessions || []).forEach(function (s) {
+      if (!countsForHistory(s)) return;
+      s.entries.forEach(function (en) {
+        if (en.exerciseId !== exerciseId) return;
+        workingSets(en.sets).forEach(function (x) {
+          any = true;
+          if (round2(x.weightKg) !== 0) allZero = false;
+        });
+      });
+    });
+    return any && allZero;
+  }
+
   function exerciseProgress(state, exerciseId) {
     return exposures(state, exerciseId).slice().reverse().map(function (e) {
       var ws = workingSets(e.sets);
@@ -656,6 +884,28 @@ window.App = window.App || {};
       });
     });
     if (!all.length) return null;
+
+    /* An exercise carried entirely at bodyweight -- hanging leg raise, Nordic
+       curl, an unweighted pull-up -- has an Epley e1RM of exactly zero, because
+       Epley multiplies by the load. Reporting "0 kg -- Best estimated 1RM" as a
+       personal record is worse than reporting nothing: it looks broken, and it
+       buries the number that did move. For those, reps ARE the progression, so
+       they are what gets recorded. The moment any set carries added weight the
+       exercise goes back to being measured in kilos. */
+    var bodyweight = all.every(function (x) { return round2(x.set.weightKg) === 0; });
+    if (bodyweight) {
+      var bestSet = all.reduce(function (a, x) { return x.set.reps > a.set.reps ? x : a; });
+      var byDate = {};
+      all.forEach(function (x) { byDate[x.date] = (byDate[x.date] || 0) + x.set.reps; });
+      var bestDate = Object.keys(byDate).reduce(function (a, d) { return byDate[d] > byDate[a] ? d : a; });
+      return {
+        bodyweight: true,
+        bestSet: { reps: bestSet.set.reps, date: bestSet.date },
+        bestSession: { reps: byDate[bestDate], date: bestDate },
+        totalWorkingSets: all.length
+      };
+    }
+
     var heaviest = all.reduce(function (a, x) { return x.set.weightKg > a.set.weightKg ? x : a; });
     var bestE1rm = all.reduce(function (a, x) { return e1rmOf(x.set) > e1rmOf(a.set) ? x : a; });
     var repsAtHeaviest = all.filter(function (x) { return round2(x.set.weightKg) === round2(heaviest.set.weightKg); })
@@ -712,7 +962,11 @@ window.App = window.App || {};
     var n = checkpointCount(state);
     for (var i = 0; i < n; i++) {
       var c = (rec && rec.checkpoints && rec.checkpoints[i]) || { state: "none" };
-      out[c.state || "none"]++;
+      // A state outside the four known ones (a hand-edited import, say) used to
+      // create a new key and increment `undefined` into it, quietly turning a
+      // count into NaN. Anything unrecognised is simply not logged.
+      var k = out.hasOwnProperty(c.state) && c.state !== "larger" ? c.state : "none";
+      out[k]++;
       if (c.largerPortion) out.larger++;
     }
     return out;
@@ -1268,15 +1522,21 @@ window.App = window.App || {};
     median: median, mad: mad, subjectiveScore: subjectiveScore,
     checkinFor: checkinFor, recoveryReadingFor: recoveryReadingFor,
     recoveryBaselines: recoveryBaselines, compareToBaseline: compareToBaseline,
-    readiness: readiness, todayAdjustment: todayAdjustment,
+    readiness: readiness, todayAdjustment: todayAdjustment, deloadInfo: deloadInfo,
+    addCustomExercise: addCustomExercise, EQUIPMENT: EQUIPMENT,
+    cardioInWeek: cardioInWeek, cardioSummary: cardioSummary,
+    addCardio: addCardio, removeCardio: removeCardio,
     recoverySnapshotFor: recoverySnapshotFor, recoveryCoverage: recoveryCoverage,
     activeProgram: activeProgram, programById: programById, programShortName: programShortName,
+    variantForPhase: variantForPhase, applyVariant: applyVariant,
     dayById: dayById, nextDay: nextDay, rotationDayInfo: rotationDayInfo,
     rotationShouldAutoAdvance: rotationShouldAutoAdvance, advanceRotationIndex: advanceRotationIndex,
     exerciseById: exerciseById, exerciseName: exerciseName, familyName: familyName,
     workingSets: workingSets, countsForHistory: countsForHistory,
     lastPerformance: lastPerformance, exposures: exposures,
-    repRangeText: repRangeText, setsText: setsText, uid: uid,
+    repRangeText: repRangeText, setsText: setsText, uid: uid, restText: restText,
+    MAX_SET_WEIGHT_KG: MAX_SET_WEIGHT_KG, MAX_SET_REPS: MAX_SET_REPS,
+    isBodyweightHistory: isBodyweightHistory, isValidISODate: isValidISODate,
     prsForSet: prsForSet, prLabel: prLabel, prAllLabels: prAllLabels,
     priorSetsLive: priorSetsLive,
     recomputeSessionPRs: recomputeSessionPRs, recomputeAllPRs: recomputeAllPRs,

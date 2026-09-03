@@ -54,7 +54,41 @@ window.App = window.App || {};
     nodes.push(el("div", { class: "muscle" }, [
       el("span", { class: "chip", text: "Phase " + info.phase + " · Wk " + info.week + (info.isDeloadWeek ? " · deload" : "") }),
       el("span", { class: "chip m", text: "Program " + M.programShortName(pv) })
-    ]));
+    ].concat(pv.variantId ? [
+      el("span", { class: "chip m", text: pv.variantId + " · " + pv.variantName })
+    ] : [])));
+
+    // Name the block on the first week of a phase — the exercises have just
+    // changed, and the honest thing is to say why rather than let it look like
+    // a bug. Once you're into the phase it's just the chip above.
+    // Week 1 is the normal case. But an existing install picking up variants
+    // for the first time can land mid-phase on B or C, with a program that
+    // simply looks different one morning and nothing to explain it. So also
+    // announce it whenever the last session you logged was a different block.
+    var lastLogged = (st.sessions || []).filter(M.countsForHistory)
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+    var blockChanged = !!(pv.variantId && lastLogged && lastLogged.variantId &&
+      lastLogged.variantId !== pv.variantId);
+    if (pv.variantId && (info.week === 1 || blockChanged)) {
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "New block" }),
+        el("p", { class: "hint", text:
+          "Phase " + info.phase + " runs variant " + pv.variantId + " — " + pv.variantName + ". " +
+          (pv.variantBlurb || "") + " Same four days and the same slots; the exercises and rep " +
+          "ranges are what changed. Each exercise keeps its own history, so nothing is compared " +
+          "across blocks that shouldn't be." })
+      ]));
+    }
+
+    var dl = M.deloadInfo(st);
+    if (dl) {
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "Deload week" }),
+        el("p", { class: "hint", text: dl.detail +
+          " Where the app would have told you to add load, it will say hold instead — the " +
+          "increase you earned is waiting in week 1 of the next phase." })
+      ]));
+    }
 
     // this device isn't the one you log on — say so before anything is typed
     var sot = st.meta && st.meta.sourceOfTruthDevice;
@@ -128,6 +162,28 @@ window.App = window.App || {};
     ]));
 
     if (!active) {
+      var wkIdx = M.weekIndexOf(st.settings, U.perthDateISO());
+      var cs = M.cardioSummary(st, wkIdx);
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "Easy rides this week" }),
+        el("div", { class: "rowb" }, [
+          el("span", { text: cs.rides
+            ? cs.rides + (cs.rides === 1 ? " ride · " : " rides · ") + cs.minutes + " min"
+            : "None yet" }),
+          el("b", { class: cs.onTarget ? "up" : "", text: cs.rides + " / " + cs.targetLow + "–" + cs.targetHigh })
+        ]),
+        cs.sessions.length ? el("div", { class: "exlist" }, cs.sessions.map(function (c) {
+          return el("button", { class: "exrow linkrow", type: "button",
+            onclick: function () { cardioSheet(st, c); } }, [
+            el("div", { class: "exrow-name", text: M.humanDate(c.date) + (c.note ? " · " + c.note : "") }),
+            el("div", { class: "exrow-target", text: c.minutes + " min" + (c.avgHrBpm ? " · " + c.avgHrBpm + " bpm" : "") })
+          ]);
+        })) : null,
+        el("button", { class: "btn ghost sm", type: "button",
+          onclick: function () { cardioSheet(st); } }, ["Log an easy ride"]),
+        el("p", { class: "hint", text: "Optional. Zone 2 means you could hold a conversation — if a ride leaves you tired for the next lifting day, it was too hard." })
+      ]));
+
       nodes.push(el("div", { class: "card" }, [
         el("span", { class: "eyebrow", text: "Train a different day?" }),
         el("p", { class: "hint", text: "Picking a day here doesn't move your rotation. When you finish it, the app asks whether it should count." }),
@@ -167,6 +223,10 @@ window.App = window.App || {};
     st.activeSession = {
       id: M.uid("s"),
       programVersionId: pv.id,
+      // which of A/B/C this was trained under, frozen like phase/week — the
+      // variant is derived from the phase, so without this a later change to
+      // the phase start date would silently relabel finished sessions
+      variantId: pv.variantId || null,
       dayId: dayId,
       dayName: di.day.name,
       startMode: (mode === "manual") ? "manual" : "scheduled",
@@ -293,7 +353,15 @@ window.App = window.App || {};
       st.sessions.push(as);
       st.activeSession = null;
       draft = {};
-      App.lastFinished = { sessionId: as.id, prevRotationIndex: prevRotationIndex, prevManualDayId: prevManualDayId, ts: Date.now() };
+      // Kept in the state, not in a variable: iOS is free to discard a
+      // backgrounded PWA's page whenever it likes, and finishing a session then
+      // pocketing the phone is exactly when that happens. In memory only, the
+      // ten minutes of undo the app promises quietly became "until something
+      // reloads you".
+      st.lastFinished = {
+        sessionId: as.id, prevRotationIndex: prevRotationIndex,
+        prevManualDayId: prevManualDayId, at: U.nowISO()
+      };
       S.save();
       location.hash = "#/history";
       render();
@@ -443,11 +511,11 @@ window.App = window.App || {};
 
   function undoLastFinish() {
     var st = S.get();
-    var lf = App.lastFinished;
+    var lf = st.lastFinished;
     if (!lf) { App.ui.toast("Nothing to undo"); return; }
     var idx = -1;
     for (var i = 0; i < st.sessions.length; i++) if (st.sessions[i].id === lf.sessionId) idx = i;
-    if (idx < 0) { App.ui.toast("That session isn't here anymore"); App.lastFinished = null; return; }
+    if (idx < 0) { App.ui.toast("That session isn't here anymore"); st.lastFinished = null; S.save(); return; }
     if (st.activeSession) { App.ui.toast("Finish or abandon the current draft first"); return; }
     var s = st.sessions.splice(idx, 1)[0];
     s.status = "draft";
@@ -458,14 +526,21 @@ window.App = window.App || {};
     st.rotationIndex = lf.prevRotationIndex;
     st.manualDayId = lf.prevManualDayId;
     M.recomputeAllPRs(st);
-    App.lastFinished = null;
+    st.lastFinished = null;
     S.save();
     location.hash = "#/session";
     render();
     App.ui.toast("Back to draft");
   }
+  var UNDO_WINDOW_MS = 10 * 60000;
   function undoAvailable() {
-    return App.lastFinished && (Date.now() - App.lastFinished.ts) < 10 * 60000;
+    var lf = S.get().lastFinished;
+    if (!lf) return false;
+    var t = new Date(lf.at).getTime();
+    // An unreadable stamp means we cannot tell whether the window has passed,
+    // so treat it as expired rather than offering an undo that may be hours old.
+    if (!isFinite(t)) return false;
+    return (Date.now() - t) < UNDO_WINDOW_MS;
   }
 
   // ==================================================================
@@ -605,6 +680,18 @@ window.App = window.App || {};
       var w = parseFloat(d.weight), r = parseInt(d.reps, 10);
       if (isNaN(w) || w < 0) { App.ui.toast("Enter a weight"); return; }
       if (isNaN(r) || r < 1) { App.ui.toast("Enter reps"); return; }
+      // Upper bounds matter more than they look. A fat-fingered 99999 or 999
+      // reps is stored forever as an unbeatable PR, flattens every real point
+      // on the progress chart, and skews muscle-group volume -- and there is no
+      // way to tell it from a real set later. Everywhere else in the app refuses
+      // implausible input (heart rate, sleep, ride minutes); this is the form it
+      // matters most in.
+      if (w > M.MAX_SET_WEIGHT_KG) {
+        App.ui.toast(w + " kg looks like a typo — the limit is " + M.MAX_SET_WEIGHT_KG + " kg"); return;
+      }
+      if (r > M.MAX_SET_REPS) {
+        App.ui.toast(r + " reps looks like a typo — the limit is " + M.MAX_SET_REPS); return;
+      }
       commitSet(w, r, d.rir, d.type);
     } }, ["Log " + (d.type === "working" ? "set" : d.type === "warmup" ? "warm-up" : "drop set")]);
 
@@ -652,11 +739,13 @@ window.App = window.App || {};
                 conf ? el("div", { class: "conf conf-" + sug.confidence }, [icon("warn", 12), conf]) : null
               ])
             ]),
+            sug.deload ? deloadBlock(sug.deload) : null,
             adj ? adjustmentBlock(adj) : null
           ])
         : el("div", { class: "recall firsttime" }, [
             el("div", { class: "sug-head", text: sug.headline }),
             el("div", { class: "sug-detail", text: sug.detail }),
+            sug.deload ? deloadBlock(sug.deload) : null,
             adj ? adjustmentBlock(adj) : null
           ]),
       setList,
@@ -699,8 +788,15 @@ window.App = window.App || {};
     var barKg = (st.settings.barWeightKg == null) ? M.DEFAULT_BAR_KG : st.settings.barWeightKg;
     var lp = M.lastPerformance(st, entry.exerciseId);
     var sug = M.overloadSuggestion(st, entry.exerciseId, entry.slot);
-    var start = (sug.recommendation && sug.recommendation.base.targetWeightKg) ||
-      (lp && M.workingSets(lp.sets).length ? M.workingSets(lp.sets)[0].weightKg : barKg + 20);
+    // In a deload week the card says "Hold" while base.targetWeightKg still
+    // carries the increase it would have suggested -- deliberately, so the
+    // number is not lost. Seeding the plate maths from it would have the panel
+    // laying out 62.5 kg directly under a line telling you to stay at 60.
+    var lastTop = (lp && M.workingSets(lp.sets).length) ? M.workingSets(lp.sets)[0].weightKg : null;
+    var start = (sug.deloadHeld && lastTop != null)
+      ? lastTop
+      : ((sug.recommendation && sug.recommendation.base.targetWeightKg) ||
+         (lastTop != null ? lastTop : barKg + 20));
 
     var wrap = el("div", { class: "plateblock" });
     var out = el("div", { class: "plateout" });
@@ -782,6 +878,109 @@ window.App = window.App || {};
 
   // The "today" line. Visually separate from the base target on purpose —
   // one is what your training says, the other is what today says.
+  // Same shape as the recovery note, different tag. The deload comes from the
+  // calendar, the recovery note from how you feel; both sit UNDER the target
+  // rather than replacing the line above them.
+  function deloadBlock(dl) {
+    return el("div", { class: "todayadj adj-amber" }, [
+      icon("info", 15),
+      el("div", {}, [
+        el("div", { class: "adj-head" }, [el("span", { class: "adj-tag", text: "Deload" }), dl.headline]),
+        el("div", { class: "adj-detail", text: dl.detail })
+      ])
+    ]);
+  }
+
+  /* Logging a ride. Four fields, three of them optional — the program asks for
+     "one or two easy rides", not a training plan for cycling, and a form that
+     asked for more would just stop it being logged at all. */
+  function cardioSheet(st, existing) {
+    var sh = App.ui.sheet(existing ? "Edit ride" : "Log an easy ride");
+
+    var mins = el("input", { type: "number", inputmode: "numeric", min: "1", max: "600",
+      value: existing ? String(existing.minutes) : "45", "aria-label": "Minutes" });
+    var hr = el("input", { type: "number", inputmode: "numeric", min: "40", max: "220",
+      value: (existing && existing.avgHrBpm != null) ? String(existing.avgHrBpm) : "",
+      placeholder: "optional", "aria-label": "Average heart rate" });
+    var note = el("input", { type: "text", value: (existing && existing.note) || "",
+      placeholder: "optional", "aria-label": "Note" });
+
+    sh.body.appendChild(el("div", { class: "kv" }, [
+      el("label", { class: "rowb" }, [el("span", { text: "Minutes" }), mins]),
+      el("label", { class: "rowb" }, [el("span", { text: "Average HR" }), hr]),
+      el("label", { class: "rowb" }, [el("span", { text: "Note" }), note])
+    ]));
+    var err = el("p", { class: "hint", text: "" });
+    sh.body.appendChild(err);
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var m = parseInt(mins.value, 10);
+      if (!(m > 0 && m <= 600)) { err.textContent = "Minutes has to be a number between 1 and 600."; return; }
+      var h = hr.value === "" ? null : parseInt(hr.value, 10);
+      if (h != null && !(h >= 40 && h <= 220)) {
+        err.textContent = "That heart rate looks wrong (" + hr.value + "). Leave it blank if you did not record one.";
+        return;
+      }
+      if (existing) {
+        existing.minutes = m; existing.avgHrBpm = h; existing.note = note.value.trim();
+      } else {
+        M.addCardio(st, { minutes: m, avgHrBpm: h, note: note.value.trim(), kind: "bike", effort: "easy" });
+      }
+      S.save();
+      sh.close();
+      App.ui.toast(existing ? "Ride updated" : "Ride logged");
+      render();
+    } }, [existing ? "Save" : "Save ride"]));
+
+    // A mistyped 480 instead of 48 would otherwise be stuck in your data for
+    // good, and quietly wrong in every weekly total from here on.
+    // Same hand-off as a lifting session, and the same honesty about it: the
+    // app cannot see what Shortcuts did, so it asks rather than claiming.
+    if (existing && App.health.isSupported()) {
+      sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        // Send what is on screen. Reading the stored ride meant an edited
+        // duration that had not been saved yet went to Health at its old value,
+        // silently -- the one number that actually crosses the bridge.
+        var mNow = parseInt(mins.value, 10);
+        if (!(mNow > 0 && mNow <= 600)) { err.textContent = "Check the minutes before sending this to Health."; return; }
+        var hNow = hr.value === "" ? null : parseInt(hr.value, 10);
+        existing.minutes = mNow;
+        existing.avgHrBpm = (hNow != null && hNow >= 40 && hNow <= 220) ? hNow : null;
+        existing.note = note.value.trim();
+        S.save();
+        var p2 = App.health.cardioPayload(existing);
+        var name = st.settings.healthWriteShortcutName;
+        sh.close();
+        setTimeout(function () {
+          var s2 = App.ui.sheet("Did it save?");
+          s2.body.appendChild(el("p", { class: "hint", text:
+            "Check Health → Browse → Activity → Workouts for a " + p2.durationMin +
+            "-minute cycling entry on " + M.humanDate(existing.date) + "." }));
+          s2.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+            existing.healthLogged = true; S.save(); s2.close();
+            App.ui.toast("Marked as saved to Health"); render();
+          } }, ["Yes, it's there"]));
+          s2.body.appendChild(el("button", { class: "btn ghost", type: "button", onclick: function () {
+            s2.close();
+            App.ui.toast("Left unmarked — the Shortcut name must match exactly");
+          } }, ["No"]));
+          s2.open();
+        }, 700);
+        App.health.open(App.health.shortcutURL(name, p2));
+      } }, [icon("heart", 16), existing.healthLogged ? " Send to Apple Health again" : " Save to Apple Health"]));
+    }
+
+    if (existing) {
+      sh.body.appendChild(el("button", { class: "btn danger sm", type: "button", onclick: function () {
+        if (!confirm("Delete the " + existing.minutes + "-minute ride on " + M.humanDate(existing.date) + "?")) return;
+        M.removeCardio(st, existing.id);
+        S.save(); sh.close(); App.ui.toast("Ride deleted"); render();
+      } }, ["Delete this ride"]));
+    }
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Cancel"]));
+    sh.open();
+  }
+
   function adjustmentBlock(adj) {
     return el("div", { class: "todayadj adj-" + adj.status }, [
       icon(adj.status === "red" ? "warn" : "info", 15),
@@ -820,7 +1019,14 @@ window.App = window.App || {};
         }
       }, [M.exerciseName(st, id) + (isPrescribed ? "  ·  prescribed" : "")]));
     });
-    sh.body.appendChild(el("label", { class: "checkrow" }, [remember, el("span", { text: "Make this the default for this slot from now on" })]));
+    // It is written into the current variant's slot, so it holds for this block
+    // and comes back when the block does. Saying "from now on" promised more
+    // than it delivers -- the next phase runs different exercises entirely.
+    var curVar = M.activeProgram(st).variantId;
+    sh.body.appendChild(el("label", { class: "checkrow" }, [remember,
+      el("span", { text: curVar
+        ? "Make this the default for this slot in block " + curVar
+        : "Make this the default for this slot from now on" })]));
     sh.open();
   }
   function rememberSwap(st, planSlotId, exId) {
@@ -850,6 +1056,26 @@ window.App = window.App || {};
       sel.appendChild(og);
     });
     sh.body.appendChild(sel);
+    function pushEntry(id) {
+      var ex = M.exerciseById(st, id);
+      as.entries.push({
+        id: M.uid("e"), planSlotId: null, movementFamilyId: ex ? ex.movementFamilyId : null,
+        prescribedExerciseId: id, exerciseId: id, altIds: [],
+        slot: null, wasSwapped: false, substitutionReason: null, note: "",
+        order: as.entries.length, sets: []
+      });
+      as.updatedAt = U.nowISO();
+      S.save(); sh.close(); render();
+    }
+
+    // The catalog will not have every machine in every gym. Without this the
+    // options are to log it as something it is not, or not log it -- and both
+    // put wrong data into the history everything else is derived from.
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+      sh.close();
+      setTimeout(function () { newExerciseSheet(st, as, pushEntry); }, 220);
+    } }, [icon("plus", 15), " Not in the list — create one"]));
+
     sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
       var id = sel.value; if (!id) return;
       var ex = M.exerciseById(st, id);
@@ -865,12 +1091,58 @@ window.App = window.App || {};
     sh.open();
   }
 
+  /* Creating an exercise the catalog does not have. Kept to what actually
+     changes behaviour: the name, what it trains, and what it is loaded with
+     (which sets the weight step). The movement family is optional and is the
+     one that earns its place -- set it and this exercise joins that family's
+     swap list, so a gym-specific machine can stand in for the lift it
+     replaces, with its own separate weights and PRs. */
+  function newExerciseSheet(st, as, onCreated) {
+    var sh = App.ui.sheet("New exercise");
+
+    var name = el("input", { type: "text", placeholder: "e.g. Plate-loaded chest press", "aria-label": "Exercise name" });
+    var mg = el("select", { class: "bigselect", "aria-label": "Muscle group" },
+      App.MUSCLES.map(function (m) { return el("option", { value: m, text: m.charAt(0).toUpperCase() + m.slice(1) }); }));
+    var eq = el("select", { class: "bigselect", "aria-label": "Equipment" },
+      M.EQUIPMENT.map(function (e) { return el("option", { value: e, text: e.charAt(0).toUpperCase() + e.slice(1) }); }));
+    var fam = el("select", { class: "bigselect", "aria-label": "Movement family" },
+      [el("option", { value: "", text: "No family — stands alone" })].concat(
+        (st.movementFamilies || []).slice()
+          .sort(function (a, b) { return a.name < b.name ? -1 : 1; })
+          .map(function (f) { return el("option", { value: f.id, text: f.name }); })));
+
+    sh.body.appendChild(el("div", { class: "kv" }, [
+      el("label", { class: "rowb" }, [el("span", { text: "Name" }), name]),
+      el("label", { class: "rowb" }, [el("span", { text: "Trains" }), mg]),
+      el("label", { class: "rowb" }, [el("span", { text: "Loaded with" }), eq]),
+      el("label", { class: "rowb" }, [el("span", { text: "Swaps with" }), fam])
+    ]));
+    sh.body.appendChild(el("p", { class: "hint", text: "\u201cSwaps with\u201d is optional. Pick a family and this shows up as a one-tap alternative for those lifts \u2014 it still keeps its own weights, history and PRs, and is never compared against them." }));
+    var err = el("p", { class: "hint warn-text", text: "" });
+    sh.body.appendChild(err);
+
+    sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+      var res = M.addCustomExercise(st, {
+        name: name.value, muscleGroup: mg.value, equipment: eq.value,
+        movementFamilyId: fam.value || null
+      });
+      if (!res.ok) { err.textContent = res.error; return; }
+      S.save();
+      sh.close();
+      App.ui.toast("Added " + res.exercise.name);
+      if (onCreated) onCreated(res.exercise.id); else render();
+    } }, ["Create and add"]));
+    sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Cancel"]));
+    sh.open();
+    setTimeout(function () { try { name.focus(); } catch (e) {} }, 120);
+  }
+
   // ==================================================================
   // History — Sessions / Week / Exercises
   // ==================================================================
   var showAbandoned = false;
   var historyTab = "sessions";
-  var filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "" };
+  var filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "", variantId: "" };
   var reviewWeek = null;          // null = current week
   var chartMetric = "e1rm";       // e1rm | weight
 
@@ -914,14 +1186,16 @@ window.App = window.App || {};
       if (filters.dayId && s.dayId !== filters.dayId) return false;
       if (filters.phase && String(s.phase) !== filters.phase) return false;
       if (filters.programVersionId && s.programVersionId !== filters.programVersionId) return false;
+      if (filters.variantId && s.variantId !== filters.variantId) return false;
       if (filters.exerciseId && !s.entries.some(function (e) { return e.exerciseId === filters.exerciseId && e.sets.length; })) return false;
       return true;
     });
 
     // filter controls
-    var dayIds = {}, phases = {}, pvIds = {}, exIds = {};
+    var dayIds = {}, phases = {}, pvIds = {}, exIds = {}, varIds = {};
     all.forEach(function (s) {
       dayIds[s.dayId] = s.dayName; phases[s.phase] = 1; pvIds[s.programVersionId] = 1;
+      if (s.variantId) varIds[s.variantId] = 1;
       s.entries.forEach(function (e) { if (e.sets.length) exIds[e.exerciseId] = 1; });
     });
     function sel(key, label, options) {
@@ -939,17 +1213,20 @@ window.App = window.App || {};
       sel("programVersionId", "Any program", Object.keys(pvIds).map(function (k) {
         var pv = M.programById(st, k); return [k, pv ? M.programShortName(pv) : k];
       })),
+      Object.keys(varIds).length > 1
+        ? sel("variantId", "Any block", Object.keys(varIds).sort().map(function (k) { return [k, "Block " + k]; }))
+        : null,
       sel("exerciseId", "Any exercise", Object.keys(exIds)
         .map(function (k) { return [k, M.exerciseName(st, k)]; })
         .sort(function (a, b) { return a[1] < b[1] ? -1 : 1; }))
     ]));
 
-    var anyFilter = filters.dayId || filters.phase || filters.programVersionId || filters.exerciseId;
+    var anyFilter = filters.dayId || filters.phase || filters.programVersionId || filters.exerciseId || filters.variantId;
     if (anyFilter) {
       nodes.push(el("div", { class: "rowb filterinfo" }, [
         el("span", { class: "hint", text: sessions.length + " of " + all.length + " sessions" }),
         el("button", { class: "linkbtn", type: "button", onclick: function () {
-          filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "" }; render();
+          filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "", variantId: "" }; render();
         } }, ["Clear filters"])
       ]));
     }
@@ -1013,11 +1290,35 @@ window.App = window.App || {};
         onclick: function () { if (wi < current) { reviewWeek = wi + 1; render(); } } }, [icon("chevright", 18)])
     ]));
 
+    // The rides card goes ABOVE the no-sessions guard: a week with no lifting
+    // is exactly the week you are most likely to have ridden, and it used to
+    // show nothing at all.
+    var cw = M.cardioSummary(st, wi);
+    var ridesCard = el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Easy rides" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: cw.rides ? cw.rides + (cw.rides === 1 ? " ride" : " rides") : "None" }),
+        el("b", { class: cw.onTarget ? "up" : "", text: cw.minutes + " min" })
+      ]),
+      cw.avgHrBpm ? el("div", { class: "rowb" }, [
+        el("span", { text: "Average HR" }), el("b", { text: cw.avgHrBpm + " bpm" })
+      ]) : null,
+      cw.note ? el("p", { class: "hint", text: cw.note }) : null,
+      cw.sessions.length ? el("div", { class: "exlist" }, cw.sessions.map(function (c) {
+        return el("button", { class: "exrow linkrow", type: "button",
+          onclick: function () { cardioSheet(st, c); } }, [
+          el("div", { class: "exrow-name", text: M.humanDate(c.date) + (c.note ? " · " + c.note : "") }),
+          el("div", { class: "exrow-target", text: c.minutes + " min" + (c.avgHrBpm ? " · " + c.avgHrBpm + " bpm" : "") })
+        ]);
+      })) : null
+    ]);
+
     if (!r.sessionCount) {
       nodes.push(el("div", { class: "card empty" }, [
         icon("cal", 26),
         el("p", { text: "No sessions logged in " + r.label.toLowerCase() + "." })
       ]));
+      nodes.push(ridesCard);
       return;
     }
 
@@ -1083,6 +1384,8 @@ window.App = window.App || {};
         el("p", { class: "hint", text: "Change in your best estimated 1RM for that exercise since the previous time you did it." })
       ]));
     }
+
+    nodes.push(ridesCard);
 
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Worth knowing" }),
@@ -1159,7 +1462,17 @@ window.App = window.App || {};
       return screen({ title: ex.name, lead: back }, nodes, ex.name);
     }
 
-    if (rec) {
+    if (rec && rec.bodyweight) {
+      // Carried at bodyweight throughout, so kilos say nothing and an Epley
+      // e1RM is exactly zero. Reps are the progression here, so reps are the
+      // record. Add weight to any set and this reverts to the normal panel.
+      nodes.push(el("div", { class: "card tintP" }, [
+        el("span", { class: "eyebrow", text: "Personal records" }),
+        prLine("Best set", rec.bestSet.reps + " reps", rec.bestSet.date),
+        prLine("Best session", rec.bestSession.reps + " reps total", rec.bestSession.date),
+        el("p", { class: "hint", text: "Logged at bodyweight, so there is no weight to record and an estimated 1RM would be zero. Add weight to a set and this switches to kilos." })
+      ]));
+    } else if (rec) {
       nodes.push(el("div", { class: "card tintP" }, [
         el("span", { class: "eyebrow", text: "Personal records" }),
         prLine("Heaviest", rec.heaviest.weightKg + " kg × " + rec.heaviest.reps, rec.heaviest.date),
@@ -1171,27 +1484,37 @@ window.App = window.App || {};
       ]));
     }
 
+    var bw = !!(rec && rec.bodyweight);
+    var metric = bw ? "reps" : chartMetric;
     nodes.push(el("div", { class: "card" }, [
       el("div", { class: "rowb" }, [
         el("span", { class: "eyebrow", text: prog.length === 1 ? "One session" : prog.length + " sessions" }),
-        el("div", { class: "seg tiny" }, [["e1rm", "1RM"], ["weight", "Top set"]].map(function (t) {
+        // No metric toggle when both options would plot a flat line of zeroes.
+        bw ? null : el("div", { class: "seg tiny" }, [["e1rm", "1RM"], ["weight", "Top set"]].map(function (t) {
           return el("button", { class: "segb" + (chartMetric === t[0] ? " on" : ""), type: "button", text: t[1],
             onclick: function () { chartMetric = t[0]; render(); } });
         }))
       ]),
-      progressChart(prog, chartMetric),
-      el("p", { class: "hint", text: chartMetric === "e1rm"
-        ? "Best estimated 1RM per session (Epley: weight × (1 + reps ÷ 30))."
-        : "Heaviest working set per session." })
+      progressChart(prog, metric),
+      el("p", { class: "hint", text: metric === "reps"
+        ? "Total working reps per session."
+        : metric === "e1rm"
+          ? "Best estimated 1RM per session (Epley: weight × (1 + reps ÷ 30))."
+          : "Heaviest working set per session." })
     ]));
 
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Every session" }),
       el("div", { class: "exlist" }, prog.slice().reverse().map(function (p) {
+        // Same reason the records card and the chart switched: "0 kg × 15 …
+        // est. 1RM 0" under a hint explaining there is no weight to record
+        // reads like the screen is broken.
         return el("a", { class: "exrow linkrow", href: "#/session/" + p.sessionId }, [
-          el("div", { class: "exrow-name", text: M.shortDate(p.date) + " · " + p.topWeight + " kg × " + p.repsAtTop }),
+          el("div", { class: "exrow-name", text: bw
+            ? M.shortDate(p.date) + " · " + p.repsAtTop + " reps top set"
+            : M.shortDate(p.date) + " · " + p.topWeight + " kg × " + p.repsAtTop }),
           el("div", { class: "exrow-target", text: "Phase " + p.phase + " Wk " + p.week + " · " + p.setCount +
-            " working sets · " + p.totalReps + " total reps · est. 1RM " + p.bestE1rm })
+            " working sets · " + p.totalReps + " total reps" + (bw ? "" : " · est. 1RM " + p.bestE1rm) })
         ]);
       }))
     ]));
@@ -1212,7 +1535,9 @@ window.App = window.App || {};
   // Small inline SVG line chart. One point per session; endpoint emphasised.
   function progressChart(prog, metric) {
     var W = 300, H = 120, PAD_L = 6, PAD_R = 6, PAD_T = 12, PAD_B = 18;
-    var vals = prog.map(function (p) { return metric === "e1rm" ? p.bestE1rm : p.topWeight; });
+    var vals = prog.map(function (p) {
+      return metric === "reps" ? p.totalReps : metric === "e1rm" ? p.bestE1rm : p.topWeight;
+    });
     var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
     if (max === min) { max = min + 1; min = min - 1; }
     var pad = (max - min) * 0.15;
@@ -1248,7 +1573,8 @@ window.App = window.App || {};
     var wrap = el("div", { class: "chartwrap" }, [svg]);
     wrap.appendChild(el("div", { class: "chartaxis" }, [
       el("span", { text: M.shortDate(prog[0].date) }),
-      el("span", { class: "chartmax", text: Math.round(Math.max.apply(null, vals) * 10) / 10 + " kg peak" }),
+      el("span", { class: "chartmax", text: Math.round(Math.max.apply(null, vals) * 10) / 10 +
+        (metric === "reps" ? " reps peak" : " kg peak") }),
       el("span", { text: M.shortDate(prog[n - 1].date) })
     ]));
     return wrap;
@@ -1270,6 +1596,7 @@ window.App = window.App || {};
     var nodes = [el("div", { class: "muscle" }, [
       el("span", { class: "chip m", text: "Phase " + s.phase + " · Wk " + s.week }),
       el("span", { class: "chip m", text: "Program " + (M.programById(st, s.programVersionId) ? M.programShortName(M.programById(st, s.programVersionId)) : s.programVersionId) }),
+      s.variantId ? el("span", { class: "chip m", text: "Block " + s.variantId }) : null,
       s.status !== "completed" ? el("span", { class: "chip status-" + s.status, text: s.status }) : null,
       s.advancesRotation ? null : el("span", { class: "chip m", text: "off-rotation" })
     ])];
@@ -1363,6 +1690,11 @@ window.App = window.App || {};
     sh.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
       var wv = parseFloat(d.weight), rv = parseInt(d.reps, 10);
       if (isNaN(wv) || wv < 0 || isNaN(rv) || rv < 1) { App.ui.toast("Check weight and reps"); return; }
+      // Same bounds as the in-session form. Editing history recomputes every
+      // PR, so an absurd value typed here produces exactly the unbeatable
+      // record and flattened chart the log-form bounds exist to prevent.
+      if (wv > M.MAX_SET_WEIGHT_KG) { App.ui.toast(wv + " kg looks like a typo — the limit is " + M.MAX_SET_WEIGHT_KG + " kg"); return; }
+      if (rv > M.MAX_SET_REPS) { App.ui.toast(rv + " reps looks like a typo — the limit is " + M.MAX_SET_REPS); return; }
       var rec = { weightKg: wv, reps: rv, type: d.type, rir: d.type === "working" ? d.rir : null, e1rm: M.epley(wv, rv), prFlags: [] };
       if (adding) { rec.id = M.uid("set"); rec.loggedAt = U.nowISO(); rec.note = null; entry.sets.push(rec); }
       else { entry.sets[index] = Object.assign(entry.sets[index], rec); }
@@ -1395,8 +1727,17 @@ window.App = window.App || {};
       el("div", { class: "rowb" }, [el("span", { text: "Phase start date" }), el("b", { text: set.phaseStartDate })]),
       el("button", { class: "btn ghost sm", type: "button", onclick: function () {
         var v = prompt("Phase start date (YYYY-MM-DD) — Perth calendar. Past sessions keep their recorded phase/week.", set.phaseStartDate);
-        if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) { set.phaseStartDate = v; S.save(); render(); }
-        else if (v != null) App.ui.toast("Use the format 2026-09-01");
+        if (v == null) return;
+        v = String(v).trim();
+        // A format check alone let "2026-13-45" through (silently stuck at
+        // phase 1 forever) and "2026-02-30" through as 2 March, a date never
+        // typed. And every phase and week label is derived from this one value.
+        if (!M.isValidISODate(v)) { App.ui.toast("That isn't a real date — use the format 2026-09-01"); return; }
+        var today = M.perthTodayISO();
+        var yearAhead = M.addDays(today, 365), tenBack = M.addDays(today, -3650);
+        if (v > yearAhead) { App.ui.toast("That's more than a year away — the block would never start"); return; }
+        if (v < tenBack) { App.ui.toast("That's over ten years ago, which would put you in phase 80-something"); return; }
+        set.phaseStartDate = v; S.save(); render();
       } }, ["Change phase start date"])
     ]));
 
@@ -1444,13 +1785,46 @@ window.App = window.App || {};
         var cur = (set.availablePlatesKg || M.DEFAULT_PLATES).join(", ");
         var v = prompt("Plate sizes your gym has, in kg, separated by commas", cur);
         if (v == null) return;
+        var seen = {}, tooBig = false;
         var list = v.split(",").map(function (x) { return parseFloat(x.trim()); })
-          .filter(function (x) { return !isNaN(x) && x > 0; })
+          .filter(function (x) {
+            if (isNaN(x) || x <= 0) return false;
+            if (x > 100) { tooBig = true; return false; }   // no gym has a 100 kg plate
+            if (seen[x]) return false;                      // "20, 20, 10" is one 20
+            seen[x] = true; return true;
+          })
           .sort(function (a, b) { return b - a; });
+        if (tooBig && !list.length) { App.ui.toast("Plates over 100 kg aren't a thing — check the numbers"); return; }
         if (!list.length) { App.ui.toast("Couldn't read any plate sizes"); return; }
+        if (tooBig) App.ui.toast("Ignored a plate over 100 kg");
         set.availablePlatesKg = list; S.save(); render();
       } }, ["Change plates"]),
       el("p", { class: "hint", text: "Used by the plate maths — tap a barbell exercise's name during a session." })
+    ]));
+
+    // ---- Rest timer -------------------------------------------------
+    // The value was seeded and read but had no control, so it was really a
+    // hardcoded 2:30 wearing a setting's clothes. 2:30 suits accessories and is
+    // short for a heavy top set, which is exactly when you want it longer.
+    var restSec = set.restTimerDefaultSec || 150;
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Rest timer" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "After a working set" }),
+        el("b", { text: M.restText(restSec) })
+      ]),
+      // .segb, not .segbtn -- the rest of the app's segmented controls use the
+      // former, and the typo shipped seven unstyled buttons. .tiny because seven
+      // options across a phone is tight.
+      // Six, not seven: seven clipped the last option off a 390px screen. This
+      // set keeps the 2:30 default and keeps 5:00 for heavy squats and pulls,
+      // and drops 4:00, which is the one nobody reaches for between 3 and 5.
+      el("div", { class: "seg wide tiny" }, [60, 90, 120, 150, 180, 300].map(function (n) {
+        return el("button", { class: "segb" + (n === restSec ? " on" : ""), type: "button",
+          "aria-pressed": n === restSec ? "true" : "false",
+          onclick: function () { set.restTimerDefaultSec = n; S.save(); render(); } }, [M.restText(n)]);
+      })),
+      el("p", { class: "hint", text: "Starts on its own after a working set — never after a warm-up or a drop set. It is a prompt, not a rule: the next set is yours to start whenever you want." })
     ]));
 
     // ---- Apple Health ----------------------------------------------
@@ -1511,6 +1885,38 @@ window.App = window.App || {};
         ? el("p", { class: "hint", text: "This browser blocked the offline worker. Everything else works and your data is safe — offline launch just isn't available here." })
         : null
     ]));
+    var fp = S.footprint();
+    function kb(n) { return n < 1024 * 1024 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+    nodes.push(el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "Storage" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Training data" }), el("b", { text: kb(fp.mainBytes) })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Backups & recovery copy" }), el("b", { text: kb(fp.backupBytes + fp.lkgBytes) })
+      ]),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Coach total" }), el("b", { text: kb(fp.totalBytes) })
+      ]),
+      // The quota belongs to the whole origin, so on user.github.io every
+      // project page you host shares it. Warning on one number while showing
+      // another made the card contradict itself.
+      fp.otherBytes ? el("div", { class: "rowb" }, [
+        el("span", { text: "Other pages on this domain" }), el("b", { text: kb(fp.otherBytes) })
+      ]) : null,
+      el("div", { class: "rowb" }, [
+        el("span", { text: fp.otherBytes ? "Whole domain" : "Total" }),
+        // .warn-text, not .warn -- `.warn` alone only exists as `.vbar .fill.warn`
+        el("b", { class: fp.shouldWarn ? "warn-text" : "", text: kb(fp.originBytes) + " of ~" + kb(fp.assumedQuotaBytes) })
+      ]),
+      fp.shouldWarn
+        ? el("div", { class: "notice" }, [
+            icon("warn", 16),
+            el("span", { text: "Getting full. Export a backup now, then use Restore to drop older snapshots — saves start failing when the browser's limit is reached, and this is the warning before that happens." })
+          ])
+        : el("p", { class: "hint", text: "A session is roughly 3 KB, so a year of training at four days a week is about 650 KB. Browsers allow somewhere between 5 and 10 MB and do not reliably say which, so this counts against a conservative 5 MB." })
+    ]));
+
 
     nodes.push(el("div", { class: "card" }, [
       el("span", { class: "eyebrow", text: "Device" }),
@@ -1684,7 +2090,8 @@ window.App = window.App || {};
         if (!r.ok) { App.ui.toast(r.fatal); return; }
         App.applyTheme(); detailEdit = null; sh.close(); location.hash = "#/today"; render();
         App.ui.toast("Backup restored");
-      } }, [M.stampText(b.at) + " · " + b.trigger + " · " + Math.round(b.sizeBytes / 1024) + " KB"]));
+      } }, [M.stampText(b.at) + " · " + b.trigger + " · " +
+            Math.round(S.backupSizeBytes(b) / 1024) + " KB"]));
     });
     sh.open();
   }
@@ -1753,7 +2160,34 @@ window.App = window.App || {};
         stat(plan.kcalTargetLow + "–" + plan.kcalTargetHigh, "kcal"),
         stat("~" + plan.proteinTarget + " g", "protein")
       ]),
-      el("p", { class: "hint", text: "A starting estimate from your stats and a physically active job — corrected by what the scale actually does, not treated as a fixed number. The app tracks whether the six meals happened, not grams." })
+      el("p", { class: "hint", text: "A starting estimate from your stats and a physically active job — corrected by what the scale actually does, not treated as a fixed number. The app tracks whether the six meals happened, not grams." }),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt("Daily calorie target, as a range in kcal (e.g. 3400-3500)",
+          plan.kcalTargetLow + "-" + plan.kcalTargetHigh);
+        if (v == null) return;
+        var m = String(v).split(/[-–to\s]+/).map(function (x) { return parseInt(x, 10); })
+          .filter(function (x) { return !isNaN(x); });
+        if (!m.length) { App.ui.toast("Couldn't read that as a range"); return; }
+        var lo = m[0], hi = m.length > 1 ? m[1] : m[0];
+        if (lo > hi) { var t = lo; lo = hi; hi = t; }
+        if (lo < 800 || hi > 8000) { App.ui.toast("That range looks wrong — expected something between 800 and 8000 kcal"); return; }
+        // The card reads M.mealPlan(st) -- i.e. settings.mealPlan -- so writing
+        // to settings.kcalTargetLow changed a key nothing displays.
+        if (!st.settings.mealPlan) st.settings.mealPlan = U.deepCopy(App.NUTRITION_SEED);
+        st.settings.mealPlan.kcalTargetLow = lo; st.settings.mealPlan.kcalTargetHigh = hi;
+        st.settings.kcalTargetLow = lo; st.settings.kcalTargetHigh = hi;   // keep the mirror in step
+        S.save(); render();
+      } }, ["Change calorie target"]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt("Daily protein target in grams", String(plan.proteinTarget));
+        if (v == null) return;
+        var n = parseInt(v, 10);
+        if (isNaN(n) || n < 20 || n > 500) { App.ui.toast("Enter a protein target between 20 and 500 g"); return; }
+        if (!st.settings.mealPlan) st.settings.mealPlan = U.deepCopy(App.NUTRITION_SEED);
+        st.settings.mealPlan.proteinTarget = n;
+        st.settings.proteinTarget = n;
+        S.save(); render();
+      } }, ["Change protein target"])
     ]));
 
     // this week
@@ -1859,6 +2293,49 @@ window.App = window.App || {};
     return screen({ title: "Body" }, nodes, "Body");
   }
 
+  /* The band every portion suggestion is measured against, so it has to be
+     yours to set: gaining slower, holding and losing are all legitimate goals,
+     and a fixed 0.2-0.3 would keep nudging you at a rate you stopped wanting.
+     It renders before the weigh-in data does, because you want to say what you
+     are aiming at on day one, not after a fortnight of readings. */
+  function targetRateCard(st) {
+    return el("div", { class: "card" }, [
+      el("span", { class: "eyebrow", text: "What you're aiming for" }),
+      el("div", { class: "rowb" }, [
+        el("span", { text: "Target rate" }),
+        el("b", { text: st.settings.bwTargetKgPerWeekLow + " to " + st.settings.bwTargetKgPerWeekHigh + " kg/week" })
+      ]),
+      el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var v = prompt(
+          "Target rate of change in kg per week, as a range.\n\n" +
+          "Gaining:  0.2 to 0.3\n" +
+          "Holding:  -0.05 to 0.05\n" +
+          "Losing:   -0.5 to -0.25",
+          st.settings.bwTargetKgPerWeekLow + " to " + st.settings.bwTargetKgPerWeekHigh);
+        if (v == null) return;
+        // "0.2-0.3" tokenised as ["0.2", "-0.3"], so asking to gain stored a
+        // band of -0.3 to 0.2 and reported losing weight as on target. The
+        // sibling calorie prompt teaches the hyphen form, so it has to work.
+        // Normalise every separator to | first; a hyphen only separates when a
+        // digit precedes it, which leaves a leading minus sign intact.
+        var nums = String(v)
+          .replace(/\s*(?:to|–|—|,)\s*/gi, "|")
+          .replace(/(\d)\s*-\s*/g, "$1|")
+          .split("|")
+          .map(function (x) { return parseFloat(x); })
+          .filter(function (x) { return !isNaN(x); });
+        if (!nums.length) nums = null;
+        if (!nums || !nums.length) { App.ui.toast("Couldn't read that as a range"); return; }
+        var lo = parseFloat(nums[0]), hi = nums.length > 1 ? parseFloat(nums[1]) : parseFloat(nums[0]);
+        if (lo > hi) { var t2 = lo; lo = hi; hi = t2; }
+        if (lo < -2 || hi > 2) { App.ui.toast("That looks wrong — expected something between -2 and 2 kg/week"); return; }
+        st.settings.bwTargetKgPerWeekLow = lo; st.settings.bwTargetKgPerWeekHigh = hi;
+        S.save(); render();
+      } }, ["Change the target rate"]),
+      el("p", { class: "hint", text: "Every portion suggestion is judged against this band, and nothing is suggested until the weigh-ins can support it." })
+    ]);
+  }
+
   function bodySectionWeight(st, nodes) {
     var today = M.perthTodayISO();
     var series = M.bodyweightSeries(st);
@@ -1873,8 +2350,11 @@ window.App = window.App || {};
       ]));
       nodes.push(el("button", { class: "btn primary", type: "button", onclick: function () { weighInSheet(st, today); } },
         [icon("plus", 16), " Log today's weight"]));
+      nodes.push(targetRateCard(st));
       return;
     }
+
+    nodes.push(targetRateCard(st));
 
     var todayEntry = series.filter(function (b) { return b.date === today; })[0];
     nodes.push(el("div", { class: "card" }, [
@@ -1909,7 +2389,7 @@ window.App = window.App || {};
       ]),
       el("p", { class: "sug-detail", text: advice.reason }),
       el("p", { class: "hint", text: "Target: " + st.settings.bwTargetKgPerWeekLow + "–" +
-        st.settings.bwTargetKgPerWeekHigh + " kg/week. One change at a time, then two weeks before the next." })
+        st.settings.bwTargetKgPerWeekHigh + " kg/week. One change at a time, then two weeks before the next." }),
     ]));
 
     nodes.push(el("div", { class: "card" }, [
@@ -1988,7 +2468,11 @@ window.App = window.App || {};
               M.humanDate(c.date)
             ]),
             el("div", { class: "exrow-target", text: "energy " + c.energy + " · soreness " + c.soreness +
-              " · work " + c.workdayLoad.replace("-", " ") + (c.painOrIllness ? " · pain/illness flagged" : "") +
+              // model.js already reads this field defensively; the view did not,
+              // so a check-in from a hand-edited import with a number or a
+              // missing value here took the whole Recovery screen down.
+              " · work " + String(c.workdayLoad == null ? "unknown" : c.workdayLoad).replace(/-/g, " ") +
+              (c.painOrIllness ? " · pain/illness flagged" : "") +
               (c.note ? " · " + c.note : "") })
           ]);
         }))

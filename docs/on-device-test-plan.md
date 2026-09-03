@@ -23,16 +23,17 @@ desktop Safari at all.
 | # | Do | Expect |
 |---|---|---|
 | 0.1 | Repo → Settings → General → Danger Zone → **Change visibility** → public | Pages is only free on a public repo |
-| 0.2 | Merge the Pages PR into `main` | Actions → *Deploy to GitHub Pages* runs green |
-| 0.3 | Open **<https://joaoaugusto1106.github.io/coach-gym-tracker/>** in **Safari** on the iPhone | Coach loads, Today shows the next day in the rotation |
-| 0.4 | Share → **Add to Home Screen** → Add | An icon called Coach |
-| 0.5 | Open it **from the home screen** | Full screen, no Safari chrome |
-| 0.6 | More → **On this device** | *Installed to home screen: **Yes***, *Works offline: **Ready*** |
+| 0.2 | Repo → Settings → **Pages** → *Build and deployment* → Source → **GitHub Actions** | One-time, and it must be done by hand — the workflow's own token is not allowed to create the Pages site |
+| 0.3 | Merge the Pages PR into `main` | Actions → *Deploy to GitHub Pages* runs green |
+| 0.4 | Open **<https://joaoaugusto1106.github.io/coach-gym-tracker/>** in **Safari** on the iPhone | Coach loads, Today shows the next day in the rotation |
+| 0.5 | Share → **Add to Home Screen** → Add | An icon called Coach |
+| 0.6 | Open it **from the home screen** | Full screen, no Safari chrome |
+| 0.7 | More → **On this device** | *Installed to home screen: **Yes***, *Works offline: **Ready*** |
 
 **Only Safari can install a web app on iOS.** Chrome on iPhone will load Coach but cannot
 add it to the home screen.
 
-### 0.7 — Prove offline before trusting it in a basement
+### 0.8 — Prove offline before trusting it in a basement
 
 1. Force-quit Coach (swipe up).
 2. Turn on **Airplane mode**.
@@ -51,6 +52,28 @@ Do not debug the Health bridge while also unsure whether logging works.
 - [ ] Log one real session end to end and **Finish** it
 - [ ] Force-quit, reopen — the session is in History with the right numbers
 - [ ] More → **Export backup** — a `.json` file lands in Files
+
+### 1.5 — Four things that behave differently on iOS than in a desktop browser
+
+These were all fixed and verified in Chromium, but each one depends on iOS
+behaviour that cannot be reproduced off the device. If one fails it is a real
+bug, so note exactly what happened.
+
+- [ ] **The screen keeps your place.** Scroll down to the third or fourth
+      exercise and log a set. The page must stay where it is. If it jumps back
+      to the header, say so — that is the single most-repeated action in the app.
+- [ ] **A note survives being swiped away.** Open a past session → Edit, type
+      something into the session note, and *without tapping anywhere else*
+      swipe up to the app switcher and swipe Coach away. Reopen it. The note
+      should still be there. (It is saved when iOS backgrounds the app; that
+      moment is the whole point of the test.)
+- [ ] **Undo survives iOS discarding the app.** Finish a session, then leave
+      Coach in the background for a few minutes while using other apps until
+      iOS reloads it on return. Within ten minutes of finishing, History must
+      still offer **Undo**. After ten minutes it must not.
+- [ ] **Nothing hides behind the notch or the home indicator.** Check the top
+      bar clears the notch, and the tab bar clears the home indicator. Then, with
+      a rest timer running, look at whether the timer sits clear of the tab bar.
 
 If anything here is wrong, stop. It is a Coach bug, not a Shortcuts problem.
 
