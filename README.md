@@ -186,6 +186,10 @@ their hand, the suite says no.
 
 - **Autosave** after every set change; "Saved HH:MM" on the Session screen. If a write
   fails, a red banner appears and stays until it succeeds.
+- **Notes are flushed when you leave.** Session and exercise notes write into state as you
+  type but only reached storage when the field lost focus, so typing a note and swiping the
+  app away lost it. They are now also saved on `pagehide` and when the tab goes hidden —
+  the last moment iOS gives a web app.
 - **A set has bounds**: 0–500 kg and 1–100 reps. 0 kg is legitimate (bodyweight) and so are
   micro-plates; a fat-fingered `99999` or `999` is not, and it would otherwise sit in your
   history forever as an unbeatable PR, flatten every real point on the progress chart, and
@@ -211,7 +215,10 @@ their hand, the suite says no.
   Revisit IndexedDB if that warning ever appears with the backups already trimmed.
   Sizes are **bytes**, not string length: a JavaScript string's `.length` counts UTF-16 code
   units and browsers charge about two bytes each, so measuring in characters would have doubled
-  the apparent headroom and put the warning past the point where writes already fail.
+  the apparent headroom and put the warning past the point where writes already fail. The
+  backup list had the same bug independently and listed each snapshot at half the size the
+  storage card charged it; it now measures the blob that is actually in storage, so snapshots
+  written before the fix display correctly too.
 
 ## Exercises the catalog doesn't have
 
@@ -565,3 +572,8 @@ you log here stays on this device — it won't reach it."*
    Health as Cycling, a Block chip and filter over the variants, and every
    number that drives advice (rest timer, calorie and protein targets, the
    weekly rate of weight change) settable rather than merely displayed
+13. ✅ Hardening — the session screen keeps your place instead of jumping to the
+   top on every logged set, notes survive being swiped away mid-typing, backup
+   sizes are charged in the same bytes as the storage warning, and the whole
+   install → offline → update → reload chain is verified end to end in a browser
+   rather than assumed
