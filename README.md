@@ -509,3 +509,7 @@ you log here stays on this device — it won't reach it."*
    training, a deload week that holds load instead of only wearing a label,
    easy-ride logging for the Zone 2 sessions the program always asked for,
    and a reachable offline notice
+12. ✅ Nothing left half-wired — rides editable, deletable and carried to
+   Health as Cycling, a Block chip and filter over the variants, and every
+   number that drives advice (rest timer, calorie and protein targets, the
+   weekly rate of weight change) settable rather than merely displayed
