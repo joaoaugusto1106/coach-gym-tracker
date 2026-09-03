@@ -73,16 +73,45 @@ window.App = window.App || {};
     return "Phase " + (Math.floor(weekIndex / len) + 1) + " · Week " + ((weekIndex % len) + 1);
   }
 
+  // ---- variants: which of A/B/C this phase runs --------------------------
+  // A program *version* records the program itself changing, and is pinned to a
+  // date so history stays attributable. A *variant* is a different axis: the
+  // same program's rotating exercise selection, chosen by the phase number.
+  // Phase 1 -> A, 2 -> B, 3 -> C, 4 -> A again.
+  function variantForPhase(pv, phase) {
+    var vs = pv && pv.variants;
+    if (!vs || !vs.length) return null;
+    var n = vs.length;
+    return vs[(((phase - 1) % n) + n) % n];
+  }
+
+  // Returns the version with `days` swapped to the phase's variant, so every
+  // existing reader of pv.days gets the right block without knowing variants
+  // exist. The stored version is never mutated.
+  function applyVariant(state, pv, dateIso) {
+    if (!pv || !pv.variants || !pv.variants.length) return pv;
+    var phase = phaseInfo(state.settings || {}, dateIso).phase;
+    var v = variantForPhase(pv, phase);
+    if (!v || !v.days || !v.days.length) return pv;
+    var out = {};
+    for (var k in pv) if (Object.prototype.hasOwnProperty.call(pv, k)) out[k] = pv[k];
+    out.days = v.days;
+    out.variantId = v.id;
+    out.variantName = v.name;
+    out.variantBlurb = v.blurb || "";
+    return out;
+  }
+
   // ---- program version in force on a given date --------------------------
   function activeProgram(state, dateIso) {
     dateIso = dateIso || perthTodayISO();
     var vs = (state.programVersions || []).slice()
       .filter(function (v) { return (v.effectiveStartDate || "0000") <= dateIso; })
       .sort(function (a, b) { return a.effectiveStartDate < b.effectiveStartDate ? 1 : -1; });
-    if (vs.length) return vs[0];
+    if (vs.length) return applyVariant(state, vs[0], dateIso);
     // nothing effective yet — fall back to the flagged active one, else the first
     var byId = programById(state, state.activeProgramVersionId);
-    return byId || state.programVersions[0];
+    return applyVariant(state, byId || state.programVersions[0], dateIso);
   }
   function programById(state, id) {
     var list = state.programVersions || [];
@@ -1271,6 +1300,7 @@ window.App = window.App || {};
     readiness: readiness, todayAdjustment: todayAdjustment,
     recoverySnapshotFor: recoverySnapshotFor, recoveryCoverage: recoveryCoverage,
     activeProgram: activeProgram, programById: programById, programShortName: programShortName,
+    variantForPhase: variantForPhase, applyVariant: applyVariant,
     dayById: dayById, nextDay: nextDay, rotationDayInfo: rotationDayInfo,
     rotationShouldAutoAdvance: rotationShouldAutoAdvance, advanceRotationIndex: advanceRotationIndex,
     exerciseById: exerciseById, exerciseName: exerciseName, familyName: familyName,

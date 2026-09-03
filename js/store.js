@@ -219,6 +219,25 @@ window.App = window.App || {};
       s.programVersions = [pv];
     }
     if (!s.activeProgramVersionId) s.activeProgramVersionId = s.programVersions[0].id;
+    // Backfill A/B/C variants onto versions saved before they existed. This is a
+    // seed backfill, not a shape change -- the field is optional and the model
+    // falls back to `days` when it is absent -- so it belongs here alongside the
+    // new-exercise backfill rather than in a numbered migration.
+    // Whatever `days` the version already had becomes variant A, so a program
+    // the user edited is preserved rather than overwritten by the seed.
+    s.programVersions.forEach(function (pv) {
+      if (Array.isArray(pv.variants) && pv.variants.length) return;
+      var seed = App.PROGRAM_VARIANT_SEED || [];
+      if (!seed.length) return;
+      pv.variants = seed.map(function (v, i) {
+        return {
+          id: v.id, name: v.name, blurb: v.blurb,
+          days: (i === 0 && Array.isArray(pv.days) && pv.days.length)
+            ? U.deepCopy(pv.days)
+            : U.deepCopy(v.days)
+        };
+      });
+    });
     if (!s.settings.mealPlan || !Array.isArray(s.settings.mealPlan.checkpoints)) {
       s.settings.mealPlan = U.deepCopy(App.NUTRITION_SEED);
     }

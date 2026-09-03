@@ -54,7 +54,23 @@ window.App = window.App || {};
     nodes.push(el("div", { class: "muscle" }, [
       el("span", { class: "chip", text: "Phase " + info.phase + " · Wk " + info.week + (info.isDeloadWeek ? " · deload" : "") }),
       el("span", { class: "chip m", text: "Program " + M.programShortName(pv) })
-    ]));
+    ].concat(pv.variantId ? [
+      el("span", { class: "chip m", text: pv.variantId + " · " + pv.variantName })
+    ] : [])));
+
+    // Name the block on the first week of a phase — the exercises have just
+    // changed, and the honest thing is to say why rather than let it look like
+    // a bug. Once you're into the phase it's just the chip above.
+    if (pv.variantId && info.week === 1) {
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "New block" }),
+        el("p", { class: "hint", text:
+          "Phase " + info.phase + " runs variant " + pv.variantId + " — " + pv.variantName + ". " +
+          (pv.variantBlurb || "") + " Same four days and the same slots; the exercises and rep " +
+          "ranges are what changed. Each exercise keeps its own history, so nothing is compared " +
+          "across blocks that shouldn't be." })
+      ]));
+    }
 
     // this device isn't the one you log on — say so before anything is typed
     var sot = st.meta && st.meta.sourceOfTruthDevice;
@@ -167,6 +183,10 @@ window.App = window.App || {};
     st.activeSession = {
       id: M.uid("s"),
       programVersionId: pv.id,
+      // which of A/B/C this was trained under, frozen like phase/week — the
+      // variant is derived from the phase, so without this a later change to
+      // the phase start date would silently relabel finished sessions
+      variantId: pv.variantId || null,
       dayId: dayId,
       dayName: di.day.name,
       startMode: (mode === "manual") ? "manual" : "scheduled",

@@ -147,6 +147,8 @@ movementFamilies[]  groups interchangeable variants — offered together as swap
 programVersions[]   append-only. id, name, effectiveStartDate, trainingDayOrder,
                     days[] → slots[] (planSlotId, defaultExerciseId, allowedExerciseIds,
                     sets, repLow, repHigh, rir, loadIncrementKg, note)
+                    variants[] → { id A|B|C, name, blurb, days[] } — the phase
+                    number picks one; `days` above is variant A and the fallback
 sessions[]      sessionId, programVersionId, dayId, startMode, status, started/finished,
                 date (Perth), phase/week snapshot, rotationPositionSnapshot,
                 advancesRotation, recoverySnapshot, notes, entries[]
@@ -162,6 +164,7 @@ readinessCheckins[] checkinId, date (Perth), energy, soreness, workdayLoad,
                     painOrIllness, note
 recoveryReadings[]  date (Perth), hrvMs, restingHrBpm, sleepHours   (filled by
                     the Health bridge in Stage 8; everything works without it)
+session.variantId          which of A/B/C the session was trained under
 session.recoverySnapshot   the readiness frozen on the day it was trained
 importEvents[] backups[]
 ```
@@ -181,6 +184,34 @@ importEvents[] backups[]
   warning → snapshots your current data → replaces. Cancel-safe at every step.
 - Storage is `localStorage` (~2 KB/session; years of training fits comfortably). Revisit
   IndexedDB only if the stored size passes ~3.5 MB.
+
+## Variants A / B / C
+
+A 6-week phase is a block, and the block changes what you actually lift. The phase number
+picks the variant — phase 1 → **A**, 2 → **B**, 3 → **C**, 4 → **A** again — so a year is four
+blocks rather than the same six exercises forever.
+
+| | |
+|---|---|
+| **A** — Barbell base | Barbell primaries, moderate reps. The block you learn the lifts on. |
+| **B** — Dumbbell & machine | Kinder on the joints, a couple of reps higher, a little more volume. |
+| **C** — Heavy block | Fewer reps and an extra set on the primaries; accessories stay normal. |
+
+All three keep the **same four days, the same slot order, and the same movement family in each
+slot**, so last-time recall, one-tap swaps and muscle-group volume stay comparable across a whole
+year. What rotates is the implement and the rep emphasis.
+
+**Weights are never compared across variants.** Each exercise keeps its own history, its own
+e1RM and its own PRs — the same rule `movementFamilies` already enforces. Coming back to
+barbell bench in phase 4 recalls your phase-1 barbell bench, not the dumbbell numbers in between.
+
+Variants are a different axis from **program versions**. A version records the program *itself*
+changing and is pinned to a date so history stays attributable; a variant is the same program's
+rotating selection and is derived from the phase. Each session freezes the variant it was
+trained under, so moving the phase start date later can't relabel finished work.
+
+The first week of a phase says which block just started and why the exercises changed — after
+that it's a chip in the header.
 
 ## The progression engine
 
