@@ -53,6 +53,28 @@ Do not debug the Health bridge while also unsure whether logging works.
 - [ ] Force-quit, reopen — the session is in History with the right numbers
 - [ ] More → **Export backup** — a `.json` file lands in Files
 
+### 1.5 — Four things that behave differently on iOS than in a desktop browser
+
+These were all fixed and verified in Chromium, but each one depends on iOS
+behaviour that cannot be reproduced off the device. If one fails it is a real
+bug, so note exactly what happened.
+
+- [ ] **The screen keeps your place.** Scroll down to the third or fourth
+      exercise and log a set. The page must stay where it is. If it jumps back
+      to the header, say so — that is the single most-repeated action in the app.
+- [ ] **A note survives being swiped away.** Open a past session → Edit, type
+      something into the session note, and *without tapping anywhere else*
+      swipe up to the app switcher and swipe Coach away. Reopen it. The note
+      should still be there. (It is saved when iOS backgrounds the app; that
+      moment is the whole point of the test.)
+- [ ] **Undo survives iOS discarding the app.** Finish a session, then leave
+      Coach in the background for a few minutes while using other apps until
+      iOS reloads it on return. Within ten minutes of finishing, History must
+      still offer **Undo**. After ten minutes it must not.
+- [ ] **Nothing hides behind the notch or the home indicator.** Check the top
+      bar clears the notch, and the tab bar clears the home indicator. Then, with
+      a rest timer running, look at whether the timer sits clear of the tab bar.
+
 If anything here is wrong, stop. It is a Coach bug, not a Shortcuts problem.
 
 ---
