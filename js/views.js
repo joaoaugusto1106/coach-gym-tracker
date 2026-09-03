@@ -1637,11 +1637,16 @@ window.App = window.App || {};
         el("span", { text: "After a working set" }),
         el("b", { text: M.restText(restSec) })
       ]),
-      el("div", { class: "seg wide" }, [60, 90, 120, 150, 180, 240, 300].map(function (n) {
-        var b = el("button", { class: "segbtn" + (n === restSec ? " on" : ""), type: "button",
+      // .segb, not .segbtn -- the rest of the app's segmented controls use the
+      // former, and the typo shipped seven unstyled buttons. .tiny because seven
+      // options across a phone is tight.
+      // Six, not seven: seven clipped the last option off a 390px screen. This
+      // set keeps the 2:30 default and keeps 5:00 for heavy squats and pulls,
+      // and drops 4:00, which is the one nobody reaches for between 3 and 5.
+      el("div", { class: "seg wide tiny" }, [60, 90, 120, 150, 180, 300].map(function (n) {
+        return el("button", { class: "segb" + (n === restSec ? " on" : ""), type: "button",
           "aria-pressed": n === restSec ? "true" : "false",
           onclick: function () { set.restTimerDefaultSec = n; S.save(); render(); } }, [M.restText(n)]);
-        return b;
       })),
       el("p", { class: "hint", text: "Starts on its own after a working set — never after a warm-up or a drop set. It is a prompt, not a rule: the next set is yours to start whenever you want." })
     ]));
