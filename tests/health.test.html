@@ -92,6 +92,43 @@ those on the iPhone; see <code>shortcuts/log-strength-workout.md</code>.</p>
   ok("changing the duration changes what Health will record",
     new Date(pShort.end) - new Date(pShort.start) === 30 * 60000);
 
+  // ---- an easy ride ----
+  // Health has a real type for cycling; logging a ride as strength training
+  // would put it in the wrong place in Fitness and make the numbers junk.
+  (function () {
+    var ride = { id: "c-1", date: "2026-03-04", kind: "bike", minutes: 48,
+      avgHrBpm: 131, effort: "easy", note: "river loop" };
+    var cp = H.cardioPayload(ride);
+
+    eq("a ride is typed as Cycling, not strength training", cp.type, "Cycling");
+    eq("the ride id travels so it can be traced", cp.cardioId, "c-1");
+    eq("it keeps the day it was logged for", cp.date, "2026-03-04");
+    eq("duration is what was logged", cp.durationMin, 48);
+    ok("the window matches the duration exactly",
+      new Date(cp.end) - new Date(cp.start) === 48 * 60000);
+    ok("and lands on the logged day, not today",
+      cp.start.indexOf("2026-03-04") === 0 || cp.end.indexOf("2026-03-04") === 0);
+
+    // the same privacy line as a lifting session
+    var ct = H.payloadText(cp);
+    ok("a ride payload carries no note", ct.indexOf("river loop") < 0);
+    ok("and no heart rate", ct.indexOf("131") < 0 && ct.toLowerCase().indexOf("hr") < 0);
+    ok("and stays small enough for a URL", ct.length < 400);
+
+    // garbage in must not become a garbage workout in Health
+    eq("zero minutes is clamped to something loggable",
+      H.cardioPayload({ id: "c", date: "2026-03-04", minutes: 0 }).durationMin, 1);
+    eq("an absurd duration is clamped rather than sent",
+      H.cardioPayload({ id: "c", date: "2026-03-04", minutes: 99999 }).durationMin, 600);
+    ok("a broken date still yields a valid window", (function () {
+      var bad = H.cardioPayload({ id: "c", date: "not-a-date", minutes: 30 });
+      return !isNaN(new Date(bad.start).getTime()) && !isNaN(new Date(bad.end).getTime());
+    })());
+
+    var curl = H.shortcutURL("Log Strength Workout", cp);
+    ok("a ride uses the same documented scheme", curl.indexOf("shortcuts://run-shortcut?") === 0);
+  })();
+
   // ---- URL ----
   var url = H.shortcutURL("Log Strength Workout", p);
   ok("uses the documented shortcuts:// scheme", url.indexOf("shortcuts://run-shortcut?") === 0);

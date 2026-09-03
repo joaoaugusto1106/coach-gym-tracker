@@ -212,7 +212,9 @@ rotating selection and is derived from the phase. Each session freezes the varia
 trained under, so moving the phase start date later can't relabel finished work.
 
 The first week of a phase says which block just started and why the exercises changed — after
-that it's a chip in the header.
+that it's a chip in the header. Past sessions carry a **Block A/B/C** chip, and once you have
+trained in more than one block History gains a filter for it, so "what did I actually do in the
+heavy block" is a question you can answer.
 
 ## The progression engine
 
@@ -333,6 +335,17 @@ The weekly review shows the rides, total minutes and average heart rate. A week 
 so — and says that skipping them is a choice rather than a failure. More than two says so too,
 and ties it to the thing that actually matters: whether they are eating into how you recover for
 lifting.
+
+Tap any ride — on Today or in the weekly review — to correct it or delete it. A mistyped 480
+instead of 48 would otherwise sit in your data for good and quietly wrong every weekly total
+after it.
+
+Rides cross the **Apple Health** bridge too, typed as `Cycling` rather than strength training so
+they land in the right place in Fitness. A ride is logged after the fact, so the window is worked
+backwards from 6pm on the day rather than inventing a departure time. **The Shortcut must read
+the `type` key** instead of hard-coding the activity type — see
+[`shortcuts/log-strength-workout.md`](shortcuts/log-strength-workout.md); if it doesn't, rides
+get logged as strength training.
 
 ## Recovery
 

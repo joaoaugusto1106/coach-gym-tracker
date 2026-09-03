@@ -164,6 +164,13 @@ window.App = window.App || {};
             : "None yet" }),
           el("b", { class: cs.onTarget ? "up" : "", text: cs.rides + " / " + cs.targetLow + "–" + cs.targetHigh })
         ]),
+        cs.sessions.length ? el("div", { class: "exlist" }, cs.sessions.map(function (c) {
+          return el("button", { class: "exrow linkrow", type: "button",
+            onclick: function () { cardioSheet(st, c); } }, [
+            el("div", { class: "exrow-name", text: M.humanDate(c.date) + (c.note ? " · " + c.note : "") }),
+            el("div", { class: "exrow-target", text: c.minutes + " min" + (c.avgHrBpm ? " · " + c.avgHrBpm + " bpm" : "") })
+          ]);
+        })) : null,
         el("button", { class: "btn ghost sm", type: "button",
           onclick: function () { cardioSheet(st); } }, ["Log an easy ride"]),
         el("p", { class: "hint", text: "Optional. Zone 2 means you could hold a conversation — if a ride leaves you tired for the next lifting day, it was too hard." })
@@ -845,14 +852,16 @@ window.App = window.App || {};
   /* Logging a ride. Four fields, three of them optional — the program asks for
      "one or two easy rides", not a training plan for cycling, and a form that
      asked for more would just stop it being logged at all. */
-  function cardioSheet(st) {
-    var sh = App.ui.sheet("Log an easy ride");
+  function cardioSheet(st, existing) {
+    var sh = App.ui.sheet(existing ? "Edit ride" : "Log an easy ride");
 
     var mins = el("input", { type: "number", inputmode: "numeric", min: "1", max: "600",
-      value: "45", "aria-label": "Minutes" });
+      value: existing ? String(existing.minutes) : "45", "aria-label": "Minutes" });
     var hr = el("input", { type: "number", inputmode: "numeric", min: "40", max: "220",
+      value: (existing && existing.avgHrBpm != null) ? String(existing.avgHrBpm) : "",
       placeholder: "optional", "aria-label": "Average heart rate" });
-    var note = el("input", { type: "text", placeholder: "optional", "aria-label": "Note" });
+    var note = el("input", { type: "text", value: (existing && existing.note) || "",
+      placeholder: "optional", "aria-label": "Note" });
 
     sh.body.appendChild(el("div", { class: "kv" }, [
       el("label", { class: "rowb" }, [el("span", { text: "Minutes" }), mins]),
@@ -870,12 +879,52 @@ window.App = window.App || {};
         err.textContent = "That heart rate looks wrong (" + hr.value + "). Leave it blank if you did not record one.";
         return;
       }
-      M.addCardio(st, { minutes: m, avgHrBpm: h, note: note.value.trim(), kind: "bike", effort: "easy" });
+      if (existing) {
+        existing.minutes = m; existing.avgHrBpm = h; existing.note = note.value.trim();
+      } else {
+        M.addCardio(st, { minutes: m, avgHrBpm: h, note: note.value.trim(), kind: "bike", effort: "easy" });
+      }
       S.save();
       sh.close();
-      App.ui.toast("Ride logged");
+      App.ui.toast(existing ? "Ride updated" : "Ride logged");
       render();
-    } }, ["Save ride"]));
+    } }, [existing ? "Save" : "Save ride"]));
+
+    // A mistyped 480 instead of 48 would otherwise be stuck in your data for
+    // good, and quietly wrong in every weekly total from here on.
+    // Same hand-off as a lifting session, and the same honesty about it: the
+    // app cannot see what Shortcuts did, so it asks rather than claiming.
+    if (existing && App.health.isSupported()) {
+      sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: function () {
+        var p2 = App.health.cardioPayload(existing);
+        var name = st.settings.healthWriteShortcutName;
+        sh.close();
+        setTimeout(function () {
+          var s2 = App.ui.sheet("Did it save?");
+          s2.body.appendChild(el("p", { class: "hint", text:
+            "Check Health → Browse → Activity → Workouts for a " + p2.durationMin +
+            "-minute cycling entry on " + M.humanDate(existing.date) + "." }));
+          s2.body.appendChild(el("button", { class: "btn primary", type: "button", onclick: function () {
+            existing.healthLogged = true; S.save(); s2.close();
+            App.ui.toast("Marked as saved to Health"); render();
+          } }, ["Yes, it's there"]));
+          s2.body.appendChild(el("button", { class: "btn ghost", type: "button", onclick: function () {
+            s2.close();
+            App.ui.toast("Left unmarked — the Shortcut name must match exactly");
+          } }, ["No"]));
+          s2.open();
+        }, 700);
+        App.health.open(App.health.shortcutURL(name, p2));
+      } }, [icon("heart", 16), existing.healthLogged ? " Send to Apple Health again" : " Save to Apple Health"]));
+    }
+
+    if (existing) {
+      sh.body.appendChild(el("button", { class: "btn danger sm", type: "button", onclick: function () {
+        if (!confirm("Delete the " + existing.minutes + "-minute ride on " + M.humanDate(existing.date) + "?")) return;
+        M.removeCardio(st, existing.id);
+        S.save(); sh.close(); App.ui.toast("Ride deleted"); render();
+      } }, ["Delete this ride"]));
+    }
     sh.body.appendChild(el("button", { class: "btn ghost sm", type: "button", onclick: sh.close }, ["Cancel"]));
     sh.open();
   }
@@ -968,7 +1017,7 @@ window.App = window.App || {};
   // ==================================================================
   var showAbandoned = false;
   var historyTab = "sessions";
-  var filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "" };
+  var filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "", variantId: "" };
   var reviewWeek = null;          // null = current week
   var chartMetric = "e1rm";       // e1rm | weight
 
@@ -1012,14 +1061,16 @@ window.App = window.App || {};
       if (filters.dayId && s.dayId !== filters.dayId) return false;
       if (filters.phase && String(s.phase) !== filters.phase) return false;
       if (filters.programVersionId && s.programVersionId !== filters.programVersionId) return false;
+      if (filters.variantId && s.variantId !== filters.variantId) return false;
       if (filters.exerciseId && !s.entries.some(function (e) { return e.exerciseId === filters.exerciseId && e.sets.length; })) return false;
       return true;
     });
 
     // filter controls
-    var dayIds = {}, phases = {}, pvIds = {}, exIds = {};
+    var dayIds = {}, phases = {}, pvIds = {}, exIds = {}, varIds = {};
     all.forEach(function (s) {
       dayIds[s.dayId] = s.dayName; phases[s.phase] = 1; pvIds[s.programVersionId] = 1;
+      if (s.variantId) varIds[s.variantId] = 1;
       s.entries.forEach(function (e) { if (e.sets.length) exIds[e.exerciseId] = 1; });
     });
     function sel(key, label, options) {
@@ -1037,17 +1088,20 @@ window.App = window.App || {};
       sel("programVersionId", "Any program", Object.keys(pvIds).map(function (k) {
         var pv = M.programById(st, k); return [k, pv ? M.programShortName(pv) : k];
       })),
+      Object.keys(varIds).length > 1
+        ? sel("variantId", "Any block", Object.keys(varIds).sort().map(function (k) { return [k, "Block " + k]; }))
+        : null,
       sel("exerciseId", "Any exercise", Object.keys(exIds)
         .map(function (k) { return [k, M.exerciseName(st, k)]; })
         .sort(function (a, b) { return a[1] < b[1] ? -1 : 1; }))
     ]));
 
-    var anyFilter = filters.dayId || filters.phase || filters.programVersionId || filters.exerciseId;
+    var anyFilter = filters.dayId || filters.phase || filters.programVersionId || filters.exerciseId || filters.variantId;
     if (anyFilter) {
       nodes.push(el("div", { class: "rowb filterinfo" }, [
         el("span", { class: "hint", text: sessions.length + " of " + all.length + " sessions" }),
         el("button", { class: "linkbtn", type: "button", onclick: function () {
-          filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "" }; render();
+          filters = { dayId: "", exerciseId: "", phase: "", programVersionId: "", variantId: "" }; render();
         } }, ["Clear filters"])
       ]));
     }
@@ -1194,7 +1248,8 @@ window.App = window.App || {};
       ]) : null,
       cw.note ? el("p", { class: "hint", text: cw.note }) : null,
       cw.sessions.length ? el("div", { class: "exlist" }, cw.sessions.map(function (c) {
-        return el("div", { class: "exrow" }, [
+        return el("button", { class: "exrow linkrow", type: "button",
+          onclick: function () { cardioSheet(st, c); } }, [
           el("div", { class: "exrow-name", text: M.humanDate(c.date) + (c.note ? " · " + c.note : "") }),
           el("div", { class: "exrow-target", text: c.minutes + " min" + (c.avgHrBpm ? " · " + c.avgHrBpm + " bpm" : "") })
         ]);
@@ -1387,6 +1442,7 @@ window.App = window.App || {};
     var nodes = [el("div", { class: "muscle" }, [
       el("span", { class: "chip m", text: "Phase " + s.phase + " · Wk " + s.week }),
       el("span", { class: "chip m", text: "Program " + (M.programById(st, s.programVersionId) ? M.programShortName(M.programById(st, s.programVersionId)) : s.programVersionId) }),
+      s.variantId ? el("span", { class: "chip m", text: "Block " + s.variantId }) : null,
       s.status !== "completed" ? el("span", { class: "chip status-" + s.status, text: s.status }) : null,
       s.advancesRotation ? null : el("span", { class: "chip m", text: "off-rotation" })
     ])];
