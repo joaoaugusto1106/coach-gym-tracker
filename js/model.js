@@ -492,20 +492,63 @@ window.App = window.App || {};
     };
   }
 
+  // ---- deload week --------------------------------------------------------
+  // The last week of a phase. Unlike a recovery nudge, this is not a reaction
+  // to how you feel -- it is the program, so it is allowed to set the target:
+  // a block that told you to add load in its own deload week would be
+  // incoherent programming, not respectful of your judgement.
+  //
+  // What it will NOT do is quietly rewrite the prescription. Sets and reps on
+  // the plan stay exactly as written; cutting the last set is said out loud and
+  // left to you, so what you log is still what you actually did.
+  function deloadInfo(state, dateIso) {
+    var info = phaseInfo((state && state.settings) || {}, dateIso);
+    if (!info.isDeloadWeek) return null;
+    return {
+      phase: info.phase, week: info.week,
+      headline: "Deload week — the last week of phase " + info.phase,
+      detail: "Hold your loads where they are and drop the last set of each exercise. " +
+        "This is planned, not a setback: it is what lets the next block start fresh."
+    };
+  }
+
   // Compact view of the recommendation, for list rows and cards.
   // tone: "push" | "hold" | "back" | "none"; confidence: "ok" | "low" | "none"
-  function overloadSuggestion(state, exerciseId, slot, excludeSessionId) {
+  function overloadSuggestion(state, exerciseId, slot, excludeSessionId, dateIso) {
     var r = recommendation(state, exerciseId, slot, excludeSessionId);
+    var dl = deloadInfo(state, dateIso);
+
+    var tone = r.base.tone, action = r.base.action;
+    var headline = r.base.headline, detail = r.base.reason;
+
+    // Only "add load" is overridden -- if the engine already wants you to hold,
+    // consolidate or back off, the deload agrees with it and there is nothing
+    // to say twice.
+    if (dl && action === "add-load") {
+      tone = "hold";
+      action = "deload-hold";
+      headline = "Hold — deload week";
+      detail = "You earned the increase: " + lowerFirst(r.base.reason) +
+        " It is waiting for you in week 1 of the next phase.";
+    }
+
     return {
-      tone: r.base.tone,
-      action: r.base.action,
-      headline: r.base.headline,
-      detail: r.base.reason,
+      tone: tone,
+      action: action,
+      headline: headline,
+      detail: detail,
       patternNote: r.base.patternNote,
       confidence: r.confidence.level,
       confidenceReasons: r.confidence.reasons,
+      deload: dl,
+      deloadHeld: !!(dl && r.base.action === "add-load"),
       recommendation: r
     };
+  }
+
+  function lowerFirst(t) {
+    t = String(t || "");
+    return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
   }
 
   // ---- Stage 3: volume, weekly review, per-exercise progress -------
@@ -1297,7 +1340,7 @@ window.App = window.App || {};
     median: median, mad: mad, subjectiveScore: subjectiveScore,
     checkinFor: checkinFor, recoveryReadingFor: recoveryReadingFor,
     recoveryBaselines: recoveryBaselines, compareToBaseline: compareToBaseline,
-    readiness: readiness, todayAdjustment: todayAdjustment,
+    readiness: readiness, todayAdjustment: todayAdjustment, deloadInfo: deloadInfo,
     recoverySnapshotFor: recoverySnapshotFor, recoveryCoverage: recoveryCoverage,
     activeProgram: activeProgram, programById: programById, programShortName: programShortName,
     variantForPhase: variantForPhase, applyVariant: applyVariant,

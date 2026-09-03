@@ -72,6 +72,16 @@ window.App = window.App || {};
       ]));
     }
 
+    var dl = M.deloadInfo(st);
+    if (dl) {
+      nodes.push(el("div", { class: "card" }, [
+        el("span", { class: "eyebrow", text: "Deload week" }),
+        el("p", { class: "hint", text: dl.detail +
+          " Where the app would have told you to add load, it will say hold instead — the " +
+          "increase you earned is waiting in week 1 of the next phase." })
+      ]));
+    }
+
     // this device isn't the one you log on — say so before anything is typed
     var sot = st.meta && st.meta.sourceOfTruthDevice;
     if (sot && sot !== "unset" && !deviceMatchesSourceOfTruth(sot)) {
@@ -672,11 +682,13 @@ window.App = window.App || {};
                 conf ? el("div", { class: "conf conf-" + sug.confidence }, [icon("warn", 12), conf]) : null
               ])
             ]),
+            sug.deload ? deloadBlock(sug.deload) : null,
             adj ? adjustmentBlock(adj) : null
           ])
         : el("div", { class: "recall firsttime" }, [
             el("div", { class: "sug-head", text: sug.headline }),
             el("div", { class: "sug-detail", text: sug.detail }),
+            sug.deload ? deloadBlock(sug.deload) : null,
             adj ? adjustmentBlock(adj) : null
           ]),
       setList,
@@ -802,6 +814,19 @@ window.App = window.App || {};
 
   // The "today" line. Visually separate from the base target on purpose —
   // one is what your training says, the other is what today says.
+  // Same shape as the recovery note, different tag. The deload comes from the
+  // calendar, the recovery note from how you feel; both sit UNDER the target
+  // rather than replacing the line above them.
+  function deloadBlock(dl) {
+    return el("div", { class: "todayadj adj-amber" }, [
+      icon("info", 15),
+      el("div", {}, [
+        el("div", { class: "adj-head" }, [el("span", { class: "adj-tag", text: "Deload" }), dl.headline]),
+        el("div", { class: "adj-detail", text: dl.detail })
+      ])
+    ]);
+  }
+
   function adjustmentBlock(adj) {
     return el("div", { class: "todayadj adj-" + adj.status }, [
       icon(adj.status === "red" ? "warn" : "info", 15),

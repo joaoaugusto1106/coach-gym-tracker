@@ -205,6 +205,53 @@
   eq("no history → none / confidence none",
     [M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).tone,
      M.overloadSuggestion({ exercises: ex, sessions: [] }, "bb-bench", slot).confidence], ["none", "none"]);
+  // --- deload week ---
+  // The last week of a phase is the program, not a mood: it is allowed to set
+  // the target. But it only ever overrides "add load", and it never rewrites
+  // the prescription.
+  (function () {
+    // phaseStartDate chosen so the reference date lands in week 6 of phase 1
+    var DELOAD = { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 };   // 2026-02-05 = wk 6
+    var NORMAL = { phaseStartDate: "2026-01-01", phaseLengthWeeks: 6 };   // 2026-01-15 = wk 3
+    function stWith(settings, sets) {
+      var st = stateWithLast("bb-bench", sets);
+      st.settings = settings;
+      return st;
+    }
+    var topped = [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, 2)];
+    var midRange = [S(60, 7, 2), S(60, 7, 2), S(60, 7, 2), S(60, 7, 2)];
+
+    eq("deloadInfo is null in a normal week",
+      M.deloadInfo({ settings: NORMAL }, "2026-01-15"), null);
+    ok("deloadInfo fires in the last week of the phase",
+      !!M.deloadInfo({ settings: DELOAD }, "2026-02-05"));
+
+    var normal = M.overloadSuggestion(stWith(NORMAL, topped), "bb-bench", slot, null, "2026-01-15");
+    var deload = M.overloadSuggestion(stWith(DELOAD, topped), "bb-bench", slot, null, "2026-02-05");
+
+    eq("outside the deload, a topped-out block still says add load", normal.action, "add-load");
+    eq("in the deload it holds instead", deload.action, "deload-hold");
+    eq("and the tone drops from push to hold", [normal.tone, deload.tone], ["push", "hold"]);
+    ok("it says the increase was earned, not lost",
+      /earned/i.test(deload.detail) && /next phase/i.test(deload.detail));
+    ok("the deload note is attached for the UI", !!deload.deload);
+    eq("and it is flagged as having held an increase", deload.deloadHeld, true);
+
+    // the engine already agreeing must not be overridden or double-announced
+    var holdInDeload = M.overloadSuggestion(stWith(DELOAD, midRange), "bb-bench", slot, null, "2026-02-05");
+    eq("a hold in the deload keeps its own action", holdInDeload.action, "hold-add-reps");
+    eq("and is not counted as an increase held back", holdInDeload.deloadHeld, false);
+    ok("but the deload note is still shown", !!holdInDeload.deload);
+
+    // the underlying recommendation is untouched — the plan is not rewritten
+    eq("the base recommendation still knows load was earned",
+      deload.recommendation.base.action, "add-load");
+    eq("and still carries the target it would have set",
+      deload.recommendation.base.targetWeightKg, 62.5);
+    eq("the prescription itself is never edited",
+      [slot.sets, slot.repLow, slot.repHigh], [4, 6, 9]);
+  })();
+
   eq("missing RIR on a set → confidence low",
     M.overloadSuggestion(stateWithLast("bb-bench", [S(60, 9, 2), S(60, 9, 2), S(60, 9, 2), S(60, 9, null)]), "bb-bench", slot).confidence, "low");
   ok("push headline names a heavier number",

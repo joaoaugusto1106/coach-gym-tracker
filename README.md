@@ -297,6 +297,26 @@ It checks four things in order, and stops at the first one it can't answer:
 Only then does it suggest **one** change — about 50 g more rice at dinner, or half a scoop
 less oats — and says to wait two weeks before the next one.
 
+## The deload week
+
+The last week of every phase is a deload, and it now does something. Where the engine would
+have said **add load**, it says **hold** instead, and says why: *"You earned the increase … it
+is waiting for you in week 1 of the next phase."* Today carries a card telling you to hold your
+loads and drop the last set of each exercise.
+
+Two limits, deliberately:
+
+- It only ever overrides **add load**. If the engine already wanted you to hold, consolidate or
+  back off, the deload agrees with it and doesn't say so twice.
+- It **never rewrites the prescription**. Sets and reps on the plan stay exactly as written and
+  the underlying recommendation still carries the target it would have set — cutting the last
+  set is said out loud and left to you, so what you log is still what you actually did.
+
+This is the one place something other than your own logged sets is allowed to set the target,
+and the reason is that it isn't a reaction to how you feel — it's the program. A block that
+told you to add load during its own deload week would be incoherent programming. Recovery, by
+contrast, still only ever adds a note underneath.
+
 ## Recovery
 
 A ten-second check-in — energy, soreness, how physical work was, and a pain/illness flag.
